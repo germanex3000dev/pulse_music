@@ -16,19 +16,19 @@ fast, focused, and look ridiculously good in a terminal.
 
 ## ✦ Features
 
--   🎵 Local music playback powered by **mpv**
--   📚 Recursive music-library scanning
--   🌳 Tree-based library browser
--   💿 Track and album views
--   📊 Real-time **CAVA** spectrum visualizer
--   🔴 Custom red-on-black terminal theme
--   ⌨️ Fully keyboard-driven controls
--   🔁 Playlist repeat
--   🔇 Mute support
--   🔊 Volume control up to 130%
--   ⏩ Instant seeking
--   🖥️ Works beautifully with minimalist terminal setups
--   🪶 Lightweight UI with no unnecessary graphical chrome
+-   Local music playback powered by **mpv**
+-   Recursive music-library scanning
+-   Tree-based library browser
+-   Track and album views
+-   Real-time **CAVA** spectrum visualizer
+-   Custom red-on-black terminal theme
+-   Fully keyboard-driven controls
+-   Playlist repeat
+-   Mute support
+-   Volume control up to 130%
+-   Instant seeking
+-   Works beautifully with minimalist terminal setups
+-   Lightweight UI with no unnecessary graphical chrome
 
 PULSE currently supports common formats including:
 
@@ -37,7 +37,7 @@ PULSE currently supports common formats including:
 
 ------------------------------------------------------------------------
 
-## ⚡ Requirements
+##  Requirements
 
 PULSE is currently aimed at Linux systems with:
 
@@ -55,12 +55,14 @@ PipeWire input backend.
 
 ------------------------------------------------------------------------
 
-## 🚀 Installation
+##  Installation
 
 Clone the repository:
 
 ``` bash
 git clone https://github.com/yourusername/pulse.git
+```
+``` bash
 cd pulse
 ```
 
@@ -76,6 +78,12 @@ Make sure the system dependencies are installed.
 
 ``` bash
 sudo pacman -S mpv cava
+```
+
+### Debian/Ubuntu Systems
+
+``` bash
+sudo apt install mpv cava
 ```
 
 Then start PULSE:
@@ -98,7 +106,7 @@ python main.py ~/Music/Soundtracks
 
 ------------------------------------------------------------------------
 
-## 🎮 Controls
+##  Controls
 
   Key       Action
   --------- ------------------------
@@ -117,7 +125,7 @@ memorize anything.
 
 ------------------------------------------------------------------------
 
-## 🎨 Design
+##  Design
 
 PULSE follows a deliberately restrained visual language:
 
@@ -137,7 +145,7 @@ reacting to the audio.
 
 ------------------------------------------------------------------------
 
-## 🧠 Architecture
+##  Architecture
 
 PULSE keeps the playback engine and UI relatively separate:
 
@@ -189,7 +197,7 @@ attack/decay smoothing before rendering it.
 
 ------------------------------------------------------------------------
 
-## 📁 Project Structure
+##  Project Structure
 
 A minimal installation looks like:
 
@@ -204,7 +212,7 @@ pulse/
 
 ------------------------------------------------------------------------
 
-## 🛠️ Configuration
+##  Configuration
 
 The default music directory is:
 
@@ -221,9 +229,12 @@ python main.py /path/to/music
 The visualizer is configured directly by PULSE when it starts CAVA, so
 there is no separate CAVA configuration file to maintain.
 
+You're also free to modify `pulse.tcss` to add your own colors. I will 
+implement more colors and maybe even matugen/wallust support in later Versions.
+
 ------------------------------------------------------------------------
 
-## 🧪 Status
+##  Status
 
 **PULSE V1.1 --- Complete**
 
@@ -241,13 +252,12 @@ V1.1 brings:
 
 ------------------------------------------------------------------------
 
-## 🗺️ Roadmap
+##  Roadmap
 
 Possible future additions:
 
 -   [ ] Search
 -   [ ] Metadata display
--   [ ] Album artwork
 -   [ ] Playlists
 -   [ ] Queue management
 -   [ ] Shuffle
@@ -255,17 +265,17 @@ Possible future additions:
 -   [ ] Persistent volume / playback state
 -   [ ] More visualizer modes
 -   [ ] Installable CLI command
--   [ ] Packaging for Arch Linux
+-   [ ] Settings menu
 
 ------------------------------------------------------------------------
 
-## 📜 License
+##  License
 
 Add your preferred license here.
 
 ------------------------------------------------------------------------
 
-::: {align="center"}
+:::
 **PULSE**
 
 *Local music. No subscriptions. No nonsense.*
