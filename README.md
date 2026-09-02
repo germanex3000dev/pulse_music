@@ -271,7 +271,15 @@ Possible future additions:
 
 ##  License
 
-Add your preferred license here.
+PULSE is licensed under the MIT License.
+
+You are free to use, copy, modify, merge, publish, distribute,
+sublicense, and sell the software, subject to the conditions of the
+license.
+
+See LICENSE for the full license text.
+
+SPDX-License-Identifier: MIT
 
 ------------------------------------------------------------------------
 
