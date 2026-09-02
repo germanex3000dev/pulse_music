@@ -1,0 +1,221 @@
+Screen {
+    background: #000000;
+    color: #ff6b6b;
+    layout: vertical;
+}
+
+Header {
+    background: #000000;
+    color: #ff2a2a;
+    text-style: bold;
+    height: 1;
+}
+
+Header > .header--title {
+    color: #ff2a2a;
+    text-style: bold;
+    text-align: left;
+    padding-left: 1;
+}
+
+Header > .header--subtitle {
+    color: #ff8080;
+    background: #000000;
+}
+
+/* ---- main row: library + now playing ---- */
+
+#main-row {
+    height: 1fr;
+    width: 100%;
+    overflow-x: hidden;
+    scrollbar-size: 0 0;
+}
+
+#library-pane {
+    width: 32%;
+    height: 100%;
+    background: #0a0a0a;
+    display: block;
+    overflow-x: hidden;
+}
+
+#library-pane.-hidden {
+    display: none;
+}
+
+#lib-title {
+    background: #0d0d0d;
+    color: #ff5555;
+    text-style: bold;
+    height: 3;
+    content-align: center middle;
+    text-align: center;
+}
+
+#lib-tree {
+    background: #0a0a0a;
+    color: #ff8a8a;
+    height: 1fr;
+    padding: 0 1;
+    scrollbar-size: 1 0;
+}
+
+#lib-tree > .tree--guides {
+    color: #5a2a2a;
+}
+
+#lib-tree > .tree--highlight {
+    background: #1c0a0a;
+    color: #ffffff;
+}
+
+#lib-tree > .tree--cursor {
+    background: #330d0d;
+    color: #ffffff;
+}
+
+#lib-tree > .tree--selected {
+    background: #471111;
+    color: #ffffff;
+}
+
+#lib-tree > .tree--expander {
+    color: #ff4444;
+}
+
+#lib-tree > .tree--label {
+    color: #ffb0b0;
+}
+
+#now-pane {
+    width: 68%;
+    height: 100%;
+    background: #000000;
+    overflow-x: hidden;
+}
+
+#now-pane.with-lib {
+    width: 100%;
+}
+
+#now-title {
+    color: #ff6b6b;
+    text-style: bold;
+    height: 3;
+    content-align: center middle;
+    text-align: center;
+    background: #000000;
+    width: 100%;
+}
+
+Visualizer {
+    height: 1fr;
+    width: 100%;
+    color: #ff3333;
+    background: #000000;
+    margin-top: 1;
+    padding: 0 1;
+}
+
+/* ---- header row: current track + time ---- */
+
+#header-row {
+    height: 3;
+    width: 100%;
+    background: #0a0a0a;
+    padding: 0 1;
+    align-vertical: middle;
+}
+
+.oneline {
+    height: 1;
+    content-align: left middle;
+}
+
+#bar-title {
+    color: #ff8080;
+    text-style: bold;
+    width: 1fr;
+}
+
+#bar-time {
+    color: #ff9b9b;
+    width: auto;
+    content-align: right middle;
+    margin-left: 1;
+}
+
+/* ---- keybind bar ---- */
+
+#bindbar {
+    height: 1;
+    width: 100%;
+    background: #000000;
+    layout: horizontal;
+    padding: 0 1;
+    align-vertical: middle;
+}
+
+#bindbar .bind-item {
+    color: #ff8a8a;
+    height: 1;
+    width: auto;
+    margin-right: 3;
+    text-style: not bold;
+}
+
+/* ---- progress row: seek + volume ---- */
+
+#progress-row {
+    height: 3;
+    width: 100%;
+    background: #0a0a0a;
+    padding: 0 1;
+    align-vertical: middle;
+}
+
+#seek {
+    height: 1;
+    width: 1fr;
+}
+
+ProgressBar {
+    background: #1a1a1a;
+    color: #ff1a1a;
+}
+
+ProgressBar > .progress--bar {
+    background: #ff3333;
+    color: #ffdddd;
+}
+
+ProgressBar > .progress--remaining {
+    background: #1a1a1a;
+}
+
+#vol {
+    color: #ff9b9b;
+    height: 1;
+    content-align: right middle;
+    background: transparent;
+    width: auto;
+    margin-left: 1;
+}
+
+/* ---- scrollbar ---- */
+
+Scrollbar {
+    background: #1a1a1a;
+    color: #c21818;
+}
+
+Scrollbar > .scrollbar--bar {
+    background: #3a0a0a;
+    color: #ff4444;
+}
+
+Scrollbar > .scrollbar--grabber {
+    background: #c21818;
+    color: #ff2222;
+}
