@@ -20,7 +20,8 @@ fast, focused, and look ridiculously good in a terminal.
 -   Recursive music-library scanning
 -   Tree-based library browser
 -   Track and album views
--   Real-time **CAVA** spectrum visualizer
+-   Real-time **CAVA** spectrum visualizer (toggle with `V`)
+-   Starts paused, so PULSE never interrupts you on launch
 -   Custom red-on-black terminal theme
 -   Fully keyboard-driven controls
 -   Playlist repeat
@@ -116,12 +117,16 @@ python main.py ~/Music/Soundtracks
   `← / →`   Seek −/+ 10 seconds
   `↑ / ↓`   Volume −/+ 5%
   `Tab`     Toggle library
+  `V`       Show / hide visualizer
   `R`       Toggle playlist repeat
   `M`       Mute / Unmute
   `Q`       Quit
 
 The controls are also displayed inside the UI, so you don't have to
 memorize anything.
+
+PULSE always opens with the library loaded but **paused** --- the first
+track is selected and ready, but nothing plays until you press `Space`.
 
 ------------------------------------------------------------------------
 
@@ -194,6 +199,10 @@ CAVA runs as a subprocess with:
 
 PULSE reads the binary stream on a background thread and applies
 attack/decay smoothing before rendering it.
+
+Pressing `V` hides the spectrum. Hiding it also stops the CAVA
+subprocess and pauses the render timer, so the visualizer costs nothing
+while it is off --- press `V` again to bring it back.
 
 ------------------------------------------------------------------------
 

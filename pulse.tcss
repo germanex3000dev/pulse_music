@@ -23,6 +23,11 @@ Header > .header--subtitle {
     background: #000000;
 }
 
+/* no glyph icon in the header - this is a terminal, not a desktop */
+HeaderIcon {
+    display: none;
+}
+
 /* ---- main row: library + now playing ---- */
 
 #main-row {
@@ -118,6 +123,16 @@ Visualizer {
     padding: 0 1;
 }
 
+Visualizer.-hidden {
+    display: none;
+}
+
+/* with the visualizer hidden, let the track title own the whole pane */
+#now-pane.no-viz #now-title {
+    height: 1fr;
+    content-align: center middle;
+}
+
 /* ---- header row: current track + time ---- */
 
 #header-row {
@@ -161,7 +176,7 @@ Visualizer {
     color: #ff8a8a;
     height: 1;
     width: auto;
-    margin-right: 3;
+    margin-right: 1;
     text-style: not bold;
 }
 

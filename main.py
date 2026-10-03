@@ -16,6 +16,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.theme import Theme
+from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Header, ProgressBar, Static, Tree
 
@@ -117,10 +118,31 @@ class Visualizer(Static):
         self._proc: subprocess.Popen | None = None
         self._reader_thread: threading.Thread | None = None
         self._cava_config: Path | None = None
+        self._timer: Timer | None = None
 
     def on_mount(self) -> None:
-        self._start_cava()
-        self.set_interval(1 / 30, self._tick)
+        self._timer = self.set_interval(1 / 30, self._tick)
+        self.start()
+
+    # ----- lifecycle (the app can stop/start the visualizer with a keybind) -----
+
+    def start(self) -> None:
+        """Start CAVA and resume refreshing the spectrum."""
+        if self._proc is not None and self._proc.poll() is not None:
+            # CAVA died on its own, clean up before spawning a new one
+            self._stop_cava()
+        if self._proc is None:
+            self._start_cava()
+        if self._timer is not None:
+            self._timer.resume()
+
+    def stop(self) -> None:
+        """Stop CAVA and stop refreshing the spectrum (frees CPU while hidden)."""
+        if self._timer is not None:
+            self._timer.pause()
+        self._stop_cava()
+        self._latest = [0.0] * self._nbars
+        self._smooth = [0.0] * self._nbars
 
     def _build_config(self) -> Path:
         fd, path = tempfile.mkstemp(prefix="pulse_cava_", suffix=".conf")
@@ -153,24 +175,42 @@ class Visualizer(Static):
     def _start_cava(self) -> None:
         try:
             self._cava_config = self._build_config()
-            self._proc = subprocess.Popen(
+            proc = subprocess.Popen(
                 ["cava", "-p", str(self._cava_config)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
-            self._reader_thread = threading.Thread(
-                target=self._read_loop, daemon=True
-            )
-            self._reader_thread.start()
         except Exception:
             self._proc = None
             self._reader_thread = None
+            return
+        self._proc = proc
+        self._reader_thread = threading.Thread(
+            target=self._read_loop, args=(proc,), daemon=True
+        )
+        self._reader_thread.start()
 
-    def _read_loop(self) -> None:
-        if self._proc is None or self._proc.stdout is None:
+    def _stop_cava(self) -> None:
+        # don't block the UI: the reader thread exits once the pipe closes
+        if self._proc is not None:
+            try:
+                self._proc.terminate()
+            except Exception:
+                pass
+        self._proc = None
+        self._reader_thread = None
+        if self._cava_config is not None:
+            try:
+                self._cava_config.unlink()
+            except Exception:
+                pass
+            self._cava_config = None
+
+    def _read_loop(self, proc: subprocess.Popen) -> None:
+        if proc.stdout is None:
             return
         bytes_per_frame = self._nbars * 2
-        stream = self._proc.stdout
+        stream = proc.stdout
         raw = b""
         while True:
             chunk = stream.read(bytes_per_frame)
@@ -180,6 +220,9 @@ class Visualizer(Static):
             while len(raw) >= bytes_per_frame:
                 frame_raw = raw[:bytes_per_frame]
                 raw = raw[bytes_per_frame:]
+                if proc is not self._proc:
+                    # a newer CAVA instance took over, this data is stale
+                    return
                 vals = struct.unpack("<" + "H" * self._nbars, frame_raw)
                 self._latest = [v / 65535.0 for v in vals]
 
@@ -253,16 +296,7 @@ class Visualizer(Static):
         return text
 
     def on_unmount(self) -> None:
-        if self._proc is not None:
-            try:
-                self._proc.terminate()
-            except Exception:
-                pass
-        if self._cava_config is not None:
-            try:
-                self._cava_config.unlink()
-            except Exception:
-                pass
+        self.stop()
 
 
 class BindBar(Widget):
@@ -274,6 +308,7 @@ class BindBar(Widget):
         ("←/→", "Seek"),
         ("↑/↓", "Volume"),
         ("tab", "Library"),
+        ("v", "Viz"),
         ("r", "Repeat"),
         ("m", "Mute"),
         ("q", "Quit"),
@@ -302,6 +337,7 @@ class PulsePlayer(App):
         Binding("up", "vol_up", "Vol+"),
         Binding("down", "vol_down", "Vol-"),
         Binding("tab", "toggle_library", "Library", priority=True),
+        Binding("v", "toggle_visualizer", "Viz", priority=True),
         Binding("r", "repeat", "Repeat", priority=True),
         Binding("m", "mute", "Mute", priority=True),
         Binding("q", "quit", "Quit", priority=True),
@@ -397,7 +433,9 @@ class PulsePlayer(App):
         self.player.observe_property("eof-reached", self._on_eof)
 
         if self._track_paths:
-            self._play(0)
+            # start paused: the library is loaded, but nothing plays until
+            # the user hits space
+            self._play(0, autoplay=False)
 
         self.set_focus(None)
 
@@ -437,7 +475,7 @@ class PulsePlayer(App):
             self.query_one("#seek", ProgressBar).progress = (
                 min(1.0, value / self._duration) * 100
             )
-        self._update_play_icon()
+        self._update_status()
 
     def _update_duration(self, value):
         self._duration = value
@@ -446,7 +484,7 @@ class PulsePlayer(App):
         )
 
     def _update_pause(self, value):
-        self._update_play_icon()
+        self._update_status()
 
     def _update_volume(self, value):
         self._volume = value
@@ -468,27 +506,30 @@ class PulsePlayer(App):
         if not self._is_paused():
             self._play(self.current_index + 1 if self.current_index is not None else 0)
 
-    def _update_play_icon(self):
-        paused = self._is_paused()
-        icon = "▶" if paused else "⏸"
-        self.query_one("#now-title", Static).update(
-            f"{'⏸' if paused else '▶'}  {self._title()}"
-        )
-        self.query_one("#bar-title", Static).update(f"{icon}  {self._title()}")
+    def _update_status(self):
+        state = self._state()
+        title = self._title()
+        self.query_one("#now-title", Static).update(f"{title}\n{state}")
+        self.query_one("#bar-title", Static).update(f"{state}  {title}")
         header = self.query_one(Header)
-        header.sub_title = f"{'⏸' if paused else '▶'}  {self._title()}"
+        header.sub_title = f"{state}  {title}"
 
     # ----- helpers -----
 
     def _is_paused(self) -> bool:
         return bool(self.player.pause) if self.player else True
 
+    def _state(self) -> str:
+        if self.player is None:
+            return "STOPPED"
+        return "PAUSED" if self.player.pause else "PLAYING"
+
     def _title(self) -> str:
         if self.current_index is None:
             return "Nothing Playing"
         return Path(self.current_path or "").name or "Track"
 
-    def _play(self, index: int) -> None:
+    def _play(self, index: int, autoplay: bool = True) -> None:
         if self.player is None or not self._track_paths:
             return
         index %= len(self._track_paths)
@@ -497,11 +538,13 @@ class PulsePlayer(App):
         self._pos = 0.0
         self._duration = None
         self.query_one("#bar-title", Static).update(f" {self._title()} ")
-        self.query_one("#now-title", Static).update(f"▶  {self._title()}")
         self.query_one("#seek", ProgressBar).progress = 0
         self.query_one("#bar-time", Static).update(" --:-- / --:-- ")
-        self._update_play_icon()
         self.player.play(self.current_path)
+        if not autoplay:
+            # load the track without letting any audio out
+            self.player.pause = True
+        self._update_status()
 
     # ----- actions -----
 
@@ -557,6 +600,18 @@ class PulsePlayer(App):
         pane.set_class(hidden, "-hidden")
         now = self.query_one("#now-pane", Vertical)
         now.set_class(not hidden, "with-lib")
+
+    def action_toggle_visualizer(self) -> None:
+        viz = self.query_one("#viz", Visualizer)
+        hidden = not viz.has_class("-hidden")
+        viz.set_class(hidden, "-hidden")
+        # stop CAVA entirely while hidden so it doesn't burn CPU
+        if hidden:
+            viz.stop()
+        else:
+            viz.start()
+        now = self.query_one("#now-pane", Vertical)
+        now.set_class(hidden, "no-viz")
 
     # ----- event handlers -----
 
