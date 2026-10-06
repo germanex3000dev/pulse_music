@@ -20,7 +20,10 @@ fast, focused, and look ridiculously good in a terminal.
 -   Recursive music-library scanning
 -   Tree-based library browser
 -   Track and album views
--   Real-time **CAVA** spectrum visualizer (toggle with `V`)
+-   Real-time **CAVA** spectrum visualizer (toggle with `V`), degrades
+    gracefully when `cava` is not installed
+-   Native **Nix** support: `nix run`, a NixOS/Home Manager module, and a dev
+    shell
 -   Starts paused, so PULSE never interrupts you on launch
 -   Custom red-on-black terminal theme
 -   Fully keyboard-driven controls
@@ -43,8 +46,8 @@ PULSE currently supports common formats including:
 PULSE is currently aimed at Linux systems with:
 
 -   Python 3.10+
--   `mpv`
--   `cava`
+-   `mpv` (including `libmpv`)
+-   `cava` (optional, only for the visualizer)
 -   PulseAudio / PipeWire audio output
 -   Python packages:
     -   `textual`
@@ -58,22 +61,104 @@ PipeWire input backend.
 
 ##  Installation
 
-Clone the repository:
+### Nix
+
+Everything comes from nixpkgs, including Python:
 
 ``` bash
 git clone https://github.com/yourusername/pulse.git
-```
-``` bash
 cd pulse
+
+nix run .            # play ~/Music
+nix run . -- ~/Music/Soundtracks
 ```
 
-Install the Python dependencies:
+Install it permanently:
 
 ``` bash
-pip install textual rich python-mpv
+nix profile install .
 ```
 
-Make sure the system dependencies are installed.
+Or build it and put the result somewhere you can run by hand:
+
+``` bash
+nix build
+./result/bin/pulse
+```
+
+For hacking on it:
+
+``` bash
+nix develop          # python3 + mpv + cava, no venv needed
+python main.py
+nix flake check      # smoke test: PULSE starts and finds libmpv
+nix fmt              # format the Nix files
+```
+
+#### NixOS
+
+Add PULSE to your configuration, usually as a flake input:
+
+``` nix
+{
+  inputs.pulse.url = "github:yourusername/pulse";
+
+  # ...
+
+  outputs = { nixpkgs, pulse, ... }: {
+    nixosConfigurations.laptop = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        pulse.nixosModules.default
+        {
+          programs.pulse.enable = true;
+          # optional, defaults to ~/Music
+          programs.pulse.musicDir = "/srv/music";
+        }
+      ];
+    };
+  };
+}
+```
+
+Without flakes, import the module straight from a checkout:
+
+``` nix
+{
+  imports = [ /path/to/pulse/nix/module.nix ];
+
+  programs.pulse.enable = true;
+}
+```
+
+#### Home Manager
+
+Same options, different module:
+
+``` nix
+{
+  imports = [ pulse.homeManagerModules.default ];
+
+  programs.pulse.enable = true;
+  programs.pulse.musicDir = "/srv/music";
+}
+```
+
+#### Why PULSE needs a wrapper on Nix
+
+Nix stores every library in its own store path, so `libmpv.so.2` is not in
+the loader cache. python-mpv loads it through `ctypes.util.find_library`,
+which only knows about `ldconfig` and `ld`; on Nix both come up empty and
+PULSE used to die at import time with a bare "cannot find libmpv".
+
+The wrapper handles that:
+
+-   `LD_LIBRARY_PATH` points at mpv's `lib`, so `find_library` succeeds
+-   `mpv` and `cava` go on `PATH`
+-   `programs.pulse.musicDir` becomes `$PULSE_MUSIC_DIR`
+
+PULSE also does its own best-effort discovery of libmpv at startup, so
+`python main.py` works inside `nix develop` and in a plain virtualenv too.
 
 ### Arch Linux
 
@@ -87,7 +172,22 @@ sudo pacman -S mpv cava
 sudo apt install mpv cava
 ```
 
-Then start PULSE:
+### From source, everywhere else
+
+Clone the repository:
+
+``` bash
+git clone https://github.com/yourusername/pulse.git
+cd pulse
+```
+
+Install the Python dependencies:
+
+``` bash
+pip install textual rich python-mpv
+```
+
+Make sure the system dependencies are installed, then start PULSE:
 
 ``` bash
 python main.py
@@ -104,6 +204,23 @@ You can also specify another directory:
 ``` bash
 python main.py ~/Music/Soundtracks
 ```
+
+------------------------------------------------------------------------
+
+##  Environment variables
+
+PULSE reads a few environment variables, which is what the Nix module uses to
+configure the wrapper:
+
+| Variable | Purpose |
+| --- | --- |
+| `PULSE_MUSIC_DIR` | Default music directory, used when no directory is passed |
+| `PULSE_AO` | Force an mpv audio output (`pipewire`, `pulse`, `alsa`, `null`) |
+| `PULSE_LIBMPV` | Path to `libmpv.so.2`, for setups where discovery fails |
+| `XDG_RUNTIME_DIR` | Filled in from `/run/user/$UID` when unset, so PipeWire and PulseAudio sockets are found |
+
+Without `PULSE_AO`, PULSE asks mpv which outputs it supports and prefers
+PipeWire, then PulseAudio, then ALSA.
 
 ------------------------------------------------------------------------
 
@@ -214,6 +331,17 @@ A minimal installation looks like:
 pulse/
 ├── main.py
 ├── pulse.tcss
+├── flake.nix
+├── nix/
+│   ├── package.nix        # the derivation
+│   ├── deps.nix           # shared Python environment
+│   ├── source.nix         # store source, minus venv/results
+│   ├── options.nix        # shared module options
+│   ├── module.nix         # NixOS module
+│   ├── home-manager.nix   # Home Manager module
+│   └── pulse-package.nix  # musicDir -> wrapper glue
+├── tests/
+│   └── test_smoke.py
 └── assets/
     ├── pulse-library.png
     └── pulse-visualizer.png
@@ -236,7 +364,9 @@ python main.py /path/to/music
 ```
 
 The visualizer is configured directly by PULSE when it starts CAVA, so
-there is no separate CAVA configuration file to maintain.
+there is no separate CAVA configuration file to maintain. If `cava` is not
+installed, PULSE shows a short notice instead of a blank spectrum and the
+rest of the player works normally.
 
 You're also free to modify `pulse.tcss` to add your own colors. I will 
 implement more colors and maybe even matugen/wallust support in later Versions.
@@ -245,9 +375,20 @@ implement more colors and maybe even matugen/wallust support in later Versions.
 
 ##  Status
 
-**PULSE V1.1 --- Complete**
+**PULSE V1.2 --- Complete**
 
-V1.1 brings:
+V1.2 brings:
+
+-   Native Nix support: `nix run`, `nix build`, `nix profile install`
+-   NixOS and Home Manager modules (`programs.pulse`)
+-   Flake dev shell with mpv, CAVA and the Python dependencies
+-   `libmpv` discovery that works on Nix, where the loader cache is empty
+-   Automatic mpv audio output selection (PipeWire, PulseAudio, ALSA)
+-   `XDG_RUNTIME_DIR` fallback so audio sockets are found
+-   Visualizer degrades gracefully when `cava` is missing
+-   Smoke test wired into `nix flake check`
+
+V1.1 brought:
 
 -   Redesigned UI layout
 -   Improved library presentation
@@ -273,7 +414,8 @@ Possible future additions:
 -   [ ] Config file
 -   [ ] Persistent volume / playback state
 -   [ ] More visualizer modes
--   [ ] Installable CLI command
+-   [x] Installable CLI command
+-   [x] Nix packaging
 -   [ ] Settings menu
 
 ------------------------------------------------------------------------
@@ -297,5 +439,5 @@ SPDX-License-Identifier: MIT
 
 *Local music. No subscriptions. No nonsense.*
 
-`V1.1`
+`V1.2`
 :::
