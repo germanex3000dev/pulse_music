@@ -17,14 +17,7 @@
         pulse = pkgs.callPackage ./nix/package.nix { };
         default = pulse;
       };
-      pythonWithDeps =
-        pkgs: python3:
-        python3.withPackages (ps: [
-          # nixpkgs renamed python-mpv to mpv (jaseg/python-mpv), support both
-          (ps.python-mpv or ps.mpv)
-          ps.rich
-          ps.textual
-        ]);
+      pythonWithDeps = pkgs: import ./nix/deps.nix { inherit (pkgs) python3; };
     in
     {
       overlays.default = final: _prev: {
@@ -50,7 +43,7 @@
         default = pkgs.mkShell {
           name = "pulse-dev";
           packages = [
-            (pythonWithDeps pkgs pkgs.python3)
+            (pythonWithDeps pkgs)
             pkgs.mpv
             pkgs.cava
           ];
@@ -70,7 +63,7 @@
           smoke =
             pkgs.runCommand "pulse-smoke-test"
               {
-                nativeBuildInputs = [ (pythonWithDeps pkgs pkgs.python3) ];
+                nativeBuildInputs = [ (pythonWithDeps pkgs) ];
                 # the loader trick the package uses, minus CAVA and mpv: PULSE
                 # has to survive without a visualizer
                 LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.mpv ];

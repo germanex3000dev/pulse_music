@@ -3,7 +3,11 @@
 #
 # Called as:
 #   import ./pulse-package.nix { inherit config lib pkgs; }
-{ config, lib, pkgs }:
+{
+  config,
+  lib,
+  pkgs,
+}:
 
 let
   cfg = config.programs.pulse;

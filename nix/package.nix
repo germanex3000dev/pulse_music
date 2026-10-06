@@ -18,12 +18,7 @@
 }:
 
 let
-  pythonWithDeps = python3.withPackages (ps: [
-    # nixpkgs renamed python-mpv to mpv (jaseg/python-mpv), support both
-    (ps.python-mpv or ps.mpv)
-    ps.rich
-    ps.textual
-  ]);
+  pythonWithDeps = import ./deps.nix { inherit python3; };
 in
 stdenv.mkDerivation {
   pname = "pulse";
