@@ -770,7 +770,10 @@ class PulsePlayer(App):
         hidden = not pane.has_class("-hidden")
         pane.set_class(hidden, "-hidden")
         now = self.query_one("#now-pane", Vertical)
-        now.set_class(not hidden, "with-lib")
+        # no-lib, not with-lib: the full-width rule belongs on the state where
+        # the library is gone, otherwise now-pane overflows and clips the
+        # right edge of the spectrum
+        now.set_class(hidden, "no-lib")
 
     def action_toggle_visualizer(self) -> None:
         viz = self.query_one("#viz", Visualizer)

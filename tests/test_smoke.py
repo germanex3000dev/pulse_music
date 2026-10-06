@@ -15,6 +15,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from textual.containers import Vertical  # noqa: E402
+
 import main  # noqa: E402
 from main import PulsePlayer, Visualizer, resolve_audio_output  # noqa: E402
 
@@ -44,6 +46,57 @@ class AudioOutputTest(unittest.TestCase):
     def test_falls_back_to_something_playable(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertNotEqual(resolve_audio_output(), "pulse")
+
+
+class LibraryToggleLayoutTest(unittest.TestCase):
+    """TAB must resize now-playing within the screen, never past its edge.
+
+    Regression test: the width class was applied on the inverted condition, so
+    hiding the library left now-pane at 68% (dead gap) and showing it again
+    jumped to 100% starting at x=38 - 158 columns on a 120-column terminal.
+    #main-row clips overflow, so the right end of the spectrum vanished.
+    """
+
+    async def scenario(self):
+        app = PulsePlayer([])
+        async with app.run_test(size=(120, 30)) as pilot:
+            now = app.query_one("#now-pane", Vertical)
+            viz = app.query_one(Visualizer)
+
+            async def settle():
+                last = None
+                for _ in range(80):
+                    await pilot.pause()
+                    if viz.size == last:
+                        return last
+                    last = viz.size
+                return last
+
+            widths = []
+            for step in range(6):
+                if step:
+                    await pilot.press("tab")
+                await settle()
+                region = now.region
+                self.assertLessEqual(
+                    region.x + region.width,
+                    120,
+                    f"step {step}: now-pane overflows the screen: {region}",
+                )
+                widths.append((region.x, region.width, tuple(viz.size)))
+
+            # every even step has the library visible and must look identical
+            even = [w for i, w in enumerate(widths) if i % 2 == 0]
+            for entry in even[1:]:
+                self.assertEqual(entry, even[0], f"toggle is not idempotent: {entry}")
+
+            # and the hidden state must actually use the full width
+            odd = [w for i, w in enumerate(widths) if i % 2 == 1]
+            self.assertEqual(odd[0][0], 0, "hidden library should start at x=0")
+            self.assertEqual(odd[0][1], 120, "hidden library should use full width")
+
+    def test_no_overflow_and_idempotent(self):
+        asyncio.run(self.scenario())
 
 
 class PulseAppTest(unittest.TestCase):

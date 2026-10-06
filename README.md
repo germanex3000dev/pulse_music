@@ -91,9 +91,20 @@ For hacking on it:
 ``` bash
 nix develop          # python3 + mpv + cava, no venv needed
 python main.py
-nix flake check      # smoke test: PULSE starts and finds libmpv
+nix flake check      # tests: PULSE starts, finds libmpv, toggles cleanly
 nix fmt              # format the Nix files
 ```
+
+The tests run without Nix too, as long as the dependencies are importable:
+
+``` bash
+python tests/test_smoke.py
+```
+
+One thing to know: Nix reads flakes from git, so it only sees tracked
+files. Edits to files that are already tracked are picked up, but a brand new
+file is invisible until you `git add` it, and Nix warns
+`Git tree ... is dirty` whenever you have uncommitted changes.
 
 #### NixOS
 
@@ -242,6 +253,11 @@ PipeWire, then PulseAudio, then ALSA.
 The controls are also displayed inside the UI, so you don't have to
 memorize anything.
 
+`Tab` and `V` can be combined freely --- hiding the library widens the
+now-playing area to the full row, and hiding the visualizer gives the track
+title the whole pane. Toggling either one repeatedly always lands back on the
+same layout.
+
 PULSE always opens with the library loaded but **paused** --- the first
 track is selected and ready, but nothing plays until you press `Space`.
 
@@ -321,6 +337,12 @@ Pressing `V` hides the spectrum. Hiding it also stops the CAVA
 subprocess and pauses the render timer, so the visualizer costs nothing
 while it is off --- press `V` again to bring it back.
 
+The spectrum always fits the width it is given: bars are drawn with a
+one-column gap, the count is capped to what fits, and the block is centred in
+the leftover space. That is what makes it survive `Tab` --- the now-playing
+pane alternates between 68% and 100% of the row, and the bars re-centre in
+whichever box they get.
+
 ------------------------------------------------------------------------
 
 ##  Project Structure
@@ -341,7 +363,7 @@ pulse/
 │   ├── home-manager.nix   # Home Manager module
 │   └── pulse-package.nix  # musicDir -> wrapper glue
 ├── tests/
-│   └── test_smoke.py
+│   └── test_smoke.py     # libmpv discovery, audio output, layout, mount
 └── assets/
     ├── pulse-library.png
     └── pulse-visualizer.png
@@ -386,7 +408,11 @@ V1.2 brings:
 -   Automatic mpv audio output selection (PipeWire, PulseAudio, ALSA)
 -   `XDG_RUNTIME_DIR` fallback so audio sockets are found
 -   Visualizer degrades gracefully when `cava` is missing
--   Smoke test wired into `nix flake check`
+-   Fixed the library toggle misaligning the visualizer: the width class
+    landed on the inverted state, so showing the library again overflowed the
+    now-playing pane and clipped the right edge of the spectrum
+-   Smoke tests wired into `nix flake check`, including a regression test for
+    the layout above
 
 V1.1 brought:
 

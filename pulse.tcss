@@ -100,7 +100,8 @@ HeaderIcon {
     overflow-x: hidden;
 }
 
-#now-pane.with-lib {
+/* library is hidden, so now-playing takes the whole row */
+#now-pane.no-lib {
     width: 100%;
 }
 
