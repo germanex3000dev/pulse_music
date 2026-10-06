@@ -1,5 +1,10 @@
 import argparse
+import ctypes
+import ctypes.util
+import glob
 import locale
+import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -9,7 +14,105 @@ from pathlib import Path
 
 locale.setlocale(locale.LC_NUMERIC, "C")
 
-import mpv
+
+# ---------------------------------------------------------------------------
+# platform bootstrap
+#
+# Nix keeps every library in its own store path and ships an almost empty
+# loader cache, so a few things that work out of the box on a normal distro
+# have to be wired up by hand. Everything here is best effort: on a regular
+# system these functions find what they need immediately and do nothing.
+# ---------------------------------------------------------------------------
+
+#: mpv audio outputs PULSE understands, most preferred first.
+AUDIO_OUTPUT_PREFERENCE = ("pipewire", "pulse", "alsa")
+
+
+def _ensure_runtime_dir() -> None:
+    """Point audio clients at the session socket when the environment forgot to.
+
+    PipeWire and PulseAudio both look for their socket below
+    ``$XDG_RUNTIME_DIR``. Launching PULSE from a service manager, a bare
+    ``nix run`` or a container often leaves that variable unset.
+    """
+    if os.environ.get("XDG_RUNTIME_DIR"):
+        return
+    runtime_dir = f"/run/user/{os.getuid()}"
+    if os.path.isdir(runtime_dir):
+        os.environ["XDG_RUNTIME_DIR"] = runtime_dir
+
+
+def _libmpv_candidates() -> list[Path]:
+    """List every place libmpv may hide when the loader cannot find it."""
+    candidates: list[Path] = []
+
+    # explicit escape hatch: PULSE_LIBMPV=/path/to/libmpv.so.2
+    override = os.environ.get("PULSE_LIBMPV")
+    if override:
+        candidates.append(Path(override).expanduser())
+
+    for directory in (
+        "/usr/lib",
+        "/usr/lib64",
+        "/usr/local/lib",
+        "/lib",
+        "/lib64",
+        # NixOS system profile, i.e. whatever environment.systemPackages links
+        "/run/current-system/sw/lib",
+    ):
+        candidates.extend(Path(directory) / name for name in ("libmpv.so.2", "libmpv.so"))
+
+    # Nix store: an mpv derivation first, then any store path shipping libmpv
+    candidates.extend(
+        Path(p) for p in sorted(glob.glob("/nix/store/*mpv*/lib/libmpv.so.2"))
+    )
+    candidates.extend(
+        Path(p) for p in sorted(glob.glob("/nix/store/*/lib/libmpv.so.2"))
+    )
+    return candidates
+
+
+def _prepare_libmpv() -> None:
+    """Make ``import mpv`` work where the loader cache knows nothing about libmpv.
+
+    python-mpv loads libmpv through ``ctypes.util.find_library``, which only
+    consults ldconfig and ``ld``. On NixOS both come up empty even with mpv
+    installed, so we locate the library ourselves, load it once to fail early
+    if it is unusable, and hand python-mpv the absolute path.
+    """
+    _ensure_runtime_dir()
+
+    if ctypes.util.find_library("mpv"):
+        return
+
+    for candidate in _libmpv_candidates():
+        if not candidate.is_file():
+            continue
+        try:
+            ctypes.CDLL(str(candidate))
+        except OSError:
+            continue
+        found = str(candidate)
+        lookup = ctypes.util.find_library
+
+        def find_library(name, *args, _found=found, _lookup=lookup, **kwargs):
+            return _found if name == "mpv" else _lookup(name, *args, **kwargs)
+
+        ctypes.util.find_library = find_library
+        return
+
+
+_prepare_libmpv()
+
+try:
+    import mpv
+except OSError as exc:  # no libmpv anywhere we know about
+    sys.exit(
+        f"pulse: {exc}\n"
+        "hint: install mpv (on NixOS add `mpv` to environment.systemPackages)\n"
+        "      or set PULSE_LIBMPV=/path/to/libmpv.so.2"
+    )
+
 from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
@@ -40,7 +143,9 @@ AUDIO_EXTS = {
     ".wav", ".wma", ".aiff", ".aif", ".ape", ".mp4", ".mka",
 }
 
-DEFAULT_DIR = Path.home() / "Music"
+#: PULSE_MUSIC_DIR lets declarative setups (a NixOS module, for instance)
+#: pick the library without editing code or passing an argument.
+DEFAULT_DIR = Path(os.environ.get("PULSE_MUSIC_DIR") or Path.home() / "Music")
 
 # cava raw output settings (must match the generated cava config)
 CAVA_BARS = 64
@@ -74,9 +179,44 @@ def parse_args() -> argparse.Namespace:
         "dir",
         nargs="?",
         default=str(DEFAULT_DIR),
-        help="Directory to scan for audio files (default: ~/Music, scanned recursively)",
+        help=(
+            "Directory to scan for audio files "
+            f"(default: {DEFAULT_DIR}, scanned recursively)"
+        ),
     )
     return parser.parse_args()
+
+
+def resolve_audio_output() -> str:
+    """Pick an mpv audio output this system actually provides.
+
+    Hardcoding ``ao=pulse`` breaks on PipeWire-only setups, and mpv is not
+    happy without a working output. Ask mpv what it can do, prefer PipeWire
+    (it is the native path on NixOS and keeps CAVA's monitor capture in
+    sync), and fall back to letting mpv decide.
+    """
+    configured = os.environ.get("PULSE_AO")
+    if configured:
+        return configured
+    try:
+        result = subprocess.run(
+            ["mpv", "--ao=help"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "auto"
+    if result.returncode != 0:
+        return "auto"
+    available = {
+        words[0] for words in (line.split() for line in result.stdout.splitlines()) if words
+    }
+    for name in AUDIO_OUTPUT_PREFERENCE:
+        if name in available:
+            return name
+    return "auto"
 
 
 def scan_music(root: Path) -> list[str]:
@@ -119,6 +259,8 @@ class Visualizer(Static):
         self._reader_thread: threading.Thread | None = None
         self._cava_config: Path | None = None
         self._timer: Timer | None = None
+        self._cava_missing = False
+        self._warned_about_cava = False
 
     def on_mount(self) -> None:
         self._timer = self.set_interval(1 / 30, self._tick)
@@ -133,7 +275,8 @@ class Visualizer(Static):
             self._stop_cava()
         if self._proc is None:
             self._start_cava()
-        if self._timer is not None:
+        # nothing to render without CAVA, so don't burn CPU on an idle timer
+        if self._timer is not None and not self._cava_missing:
             self._timer.resume()
 
     def stop(self) -> None:
@@ -173,6 +316,18 @@ class Visualizer(Static):
         return Path(path)
 
     def _start_cava(self) -> None:
+        if shutil.which("cava") is None:
+            # CAVA is optional (it lives in its own Nix package), so say so
+            # once instead of failing silently behind a blank spectrum.
+            self._cava_missing = True
+            if not self._warned_about_cava:
+                self._warned_about_cava = True
+                self.notify(
+                    "cava not found: visualizer disabled",
+                    title="pulse",
+                    severity="warning",
+                )
+            return
         try:
             self._cava_config = self._build_config()
             proc = subprocess.Popen(
@@ -242,6 +397,9 @@ class Visualizer(Static):
         self.refresh()
 
     def render(self) -> Text:
+        if self._cava_missing:
+            return Text("  CAVA not found - visualizer disabled  ", style="italic #7a2020")
+
         width = max(1, self.size.width)
         height = max(1, self.size.height)
 
@@ -419,7 +577,7 @@ class PulsePlayer(App):
             input_default_bindings=False,
             input_vo_keyboard=False,
             vo="null",
-            ao="pulse",
+            ao=resolve_audio_output(),
             keep_open="yes",
         )
         self.player.loop = "no"
