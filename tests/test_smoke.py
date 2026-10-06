@@ -15,6 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import main  # noqa: E402
 from main import PulsePlayer, Visualizer, resolve_audio_output  # noqa: E402
 
 
@@ -23,6 +24,16 @@ class LibmpvTest(unittest.TestCase):
         # main._prepare_libmpv() has to make this work, otherwise `import mpv`
         # raises OSError before the app even starts
         self.assertIsNotNone(ctypes.util.find_library("mpv"))
+
+    def test_libmpv_is_actually_usable(self):
+        # finding the name is not enough: a libmpv with unmet dependencies
+        # fails at CDLL time instead
+        found = ctypes.util.find_library("mpv")
+        self.assertIsNotNone(ctypes.CDLL(found))
+
+    def test_explicit_override_is_first_candidate(self):
+        with mock.patch.dict(os.environ, {"PULSE_LIBMPV": "/custom/libmpv.so.2"}):
+            self.assertEqual(str(main._libmpv_candidates()[0]), "/custom/libmpv.so.2")
 
 
 class AudioOutputTest(unittest.TestCase):

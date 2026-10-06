@@ -43,7 +43,13 @@ def _ensure_runtime_dir() -> None:
 
 
 def _libmpv_candidates() -> list[Path]:
-    """List every place libmpv may hide when the loader cannot find it."""
+    """List every place libmpv may hide when the loader cannot find it.
+
+    Ordered best first: an explicit override, then the usual library
+    directories, then the Nix store. In the store we prefer the libmpv that
+    belongs to the mpv binary on PATH, since that is the one PULSE will end
+    up talking to.
+    """
     candidates: list[Path] = []
 
     # explicit escape hatch: PULSE_LIBMPV=/path/to/libmpv.so.2
@@ -62,7 +68,14 @@ def _libmpv_candidates() -> list[Path]:
     ):
         candidates.extend(Path(directory) / name for name in ("libmpv.so.2", "libmpv.so"))
 
-    # Nix store: an mpv derivation first, then any store path shipping libmpv
+    # Nix store: the mpv binary on PATH decides first, so PULSE never mixes a
+    # libmpv from one mpv build with the `mpv --ao=help` answer from another
+    mpv_binary = shutil.which("mpv")
+    if mpv_binary:
+        lib_dir = Path(mpv_binary).resolve().parent.parent / "lib"
+        candidates.extend(lib_dir / name for name in ("libmpv.so.2", "libmpv.so"))
+
+    # then any mpv derivation, then anything else shipping libmpv
     candidates.extend(
         Path(p) for p in sorted(glob.glob("/nix/store/*mpv*/lib/libmpv.so.2"))
     )
