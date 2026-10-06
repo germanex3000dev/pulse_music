@@ -12,21 +12,19 @@
         "x86_64-linux"
         "aarch64-linux"
       ];
-      forAllSystems =
-        fn: nixpkgs.lib.genAttrs systems (system: fn nixpkgs.legacyPackages.${system});
-      forEachPackage =
-        pkgs: rec {
-          pulse = pkgs.callPackage ./nix/package.nix { };
-          default = pulse;
-        };
+      forAllSystems = fn: nixpkgs.lib.genAttrs systems (system: fn nixpkgs.legacyPackages.${system});
+      forEachPackage = pkgs: rec {
+        pulse = pkgs.callPackage ./nix/package.nix { };
+        default = pulse;
+      };
       pythonWithDeps =
-        pkgs: python3: python3.withPackages (
-          ps: with ps; [
-            python-mpv
-            rich
-            textual
-          ]
-        );
+        pkgs: python3:
+        python3.withPackages (ps: [
+          # nixpkgs renamed python-mpv to mpv (jaseg/python-mpv), support both
+          (ps.python-mpv or ps.mpv)
+          ps.rich
+          ps.textual
+        ]);
     in
     {
       overlays.default = final: _prev: {
@@ -39,6 +37,10 @@
         pulse = {
           type = "app";
           program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.pulse}/bin/pulse";
+          meta = {
+            description = "Terminal-native TUI music player powered by Textual, mpv and CAVA";
+            platforms = systems;
+          };
         };
         default = pulse;
       });
@@ -58,32 +60,43 @@
         };
       });
 
-      checks = forAllSystems (pkgs: {
-        # PULSE has to start up, find libmpv and mount its UI
-        smoke = pkgs.runCommand "pulse-smoke-test"
-          {
-            name = "pulse-smoke-test";
-            src = import ./nix/source.nix { inherit (pkgs) lib; };
-            nativeBuildInputs = [ (pythonWithDeps pkgs pkgs.python3) ];
-            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.mpv ];
-          }
-          ''
-            chmod -R +w .
-            HOME="$TMPDIR" python -m unittest discover --start-directory tests
-            touch "$out"
-          '';
-      });
+      checks = forAllSystems (
+        pkgs:
+        let
+          source = import ./nix/source.nix { inherit (pkgs) lib; };
+        in
+        {
+          # PULSE has to start up, find libmpv and mount its UI
+          smoke =
+            pkgs.runCommand "pulse-smoke-test"
+              {
+                nativeBuildInputs = [ (pythonWithDeps pkgs pkgs.python3) ];
+                # the loader trick the package uses, minus CAVA and mpv: PULSE
+                # has to survive without a visualizer
+                LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.mpv ];
+              }
+              ''
+                mkdir source
+                cp -r ${source}/. source/
+                chmod -R +w source
+                cd source
+                HOME="$TMPDIR" python tests/test_smoke.py
+                touch "$out"
+              '';
+        }
+      );
 
       nixosModules = {
-        pulse = import ./nix/module.nix { };
+        pulse = ./nix/module.nix;
         default = self.nixosModules.pulse;
       };
 
       homeManagerModules = {
-        pulse = import ./nix/home-manager.nix { };
+        pulse = ./nix/home-manager.nix;
         default = self.homeManagerModules.pulse;
       };
 
-      formatter = forAllSystems (pkgs: pkgs.nixfmt-rfc-style);
+      # nixfmt-tree only picks up *.nix, plain nixfmt chokes on the rest
+      formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
     };
 }

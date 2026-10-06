@@ -18,13 +18,12 @@
 }:
 
 let
-  pythonWithDeps = python3.withPackages (
-    ps: with ps; [
-      python-mpv
-      rich
-      textual
-    ]
-  );
+  pythonWithDeps = python3.withPackages (ps: [
+    # nixpkgs renamed python-mpv to mpv (jaseg/python-mpv), support both
+    (ps.python-mpv or ps.mpv)
+    ps.rich
+    ps.textual
+  ]);
 in
 stdenv.mkDerivation {
   pname = "pulse";
@@ -49,7 +48,12 @@ stdenv.mkDerivation {
     makeWrapper ${pythonWithDeps}/bin/python3 "$out/bin/pulse" \
       --add-flags "$out/libexec/pulse/main.py" \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ mpv ]} \
-      --prefix PATH : ${lib.makeBinPath [ mpv cava ]} \
+      --prefix PATH : ${
+        lib.makeBinPath [
+          mpv
+          cava
+        ]
+      } \
       ${lib.escapeShellArgs wrapperArgs}
 
     runHook postInstall

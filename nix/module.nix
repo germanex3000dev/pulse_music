@@ -7,7 +7,10 @@
   config,
   lib,
   pkgs,
+  # `...` absorbs the extra arguments (specialArgs and friends) the module
+  # system hands to every module
   packagesOption ? "environment.systemPackages",
+  ...
 }:
 
 let
