@@ -9,9 +9,15 @@
   options.programs.pulse = {
     enable = lib.mkEnableOption "PULSE, the terminal-native music player";
 
-    # defaultPath so this works without the flake or an overlay applied: the
-    # option resolves to pkgs.callPackage ./package.nix
-    package = lib.mkPackageOption pkgs "pulse" { defaultPath = ./package.nix; };
+    # nullable so that the package works even when it is not in nixpkgs and no
+    # overlay is applied: the fallback below calls ./package.nix directly
+    package = lib.mkPackageOption pkgs "pulse" {
+      nullable = true;
+      default = null;
+      defaultText = lib.literalExpression ''
+        pkgs.callPackage ./package.nix { }
+      '';
+    };
 
     musicDir = lib.mkOption {
       type = lib.types.nullOr lib.types.str;

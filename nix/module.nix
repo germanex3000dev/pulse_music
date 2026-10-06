@@ -5,12 +5,13 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 
 let
   cfg = config.programs.pulse;
-  pulsePackage = import ./pulse-package.nix { inherit config lib; };
+  pulsePackage = import ./pulse-package.nix { inherit config lib pkgs; };
 in
 {
   imports = [ ./options.nix ];
