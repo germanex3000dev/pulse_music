@@ -1,9 +1,7 @@
 {
   description = "PULSE - a terminal-native music player with a heartbeat";
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-  };
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
     { self, nixpkgs }:
@@ -12,33 +10,44 @@
         "x86_64-linux"
         "aarch64-linux"
       ];
+
       forAllSystems = fn: nixpkgs.lib.genAttrs systems (system: fn nixpkgs.legacyPackages.${system});
-      forEachPackage = pkgs: rec {
-        pulse = pkgs.callPackage ./nix/package.nix { };
-        default = pulse;
-      };
+
+      pulseFor = pkgs: pkgs.callPackage ./nix/package.nix { };
+
+      # PULSE imports textual, rich and python-mpv; the same set feeds the
+      # package, the dev shell and the tests
       pythonWithDeps = pkgs: import ./nix/deps.nix { inherit (pkgs) python3; };
     in
     {
       overlays.default = final: _prev: {
-        pulse = final.callPackage ./nix/package.nix { };
+        pulse = pulseFor final;
       };
 
-      packages = forAllSystems forEachPackage;
-
-      apps = forAllSystems (pkgs: rec {
-        pulse = {
-          type = "app";
-          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.pulse}/bin/pulse";
-          meta = {
-            description = "Terminal-native TUI music player powered by Textual, mpv and CAVA";
-            platforms = systems;
-          };
-        };
-        default = pulse;
+      packages = forAllSystems (pkgs: {
+        pulse = pulseFor pkgs;
+        default = pulseFor pkgs;
       });
 
-      # Run it from a checkout: `nix develop` then `python main.py`
+      apps = forAllSystems (
+        pkgs:
+        let
+          app = {
+            type = "app";
+            program = "${pulseFor pkgs}/bin/pulse";
+            meta = {
+              description = "Terminal-native TUI music player powered by Textual, mpv and CAVA";
+              platforms = systems;
+            };
+          };
+        in
+        {
+          pulse = app;
+          default = app;
+        }
+      );
+
+      # `nix develop`, then `python main.py`
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           name = "pulse-dev";
@@ -47,8 +56,8 @@
             pkgs.mpv
             pkgs.cava
           ];
-          # the loader trick the package uses, so the venv-less dev shell
-          # finds libmpv exactly like the packaged binary does
+          # the loader trick from nix/package.nix, so the dev shell finds
+          # libmpv exactly like the packaged binary does
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.mpv ];
         };
       });
@@ -59,13 +68,12 @@
           source = import ./nix/source.nix { inherit (pkgs) lib; };
         in
         {
-          # PULSE has to start up, find libmpv and mount its UI
+          # PULSE has to start up, find libmpv, mount its UI and survive the
+          # layout toggles. Deliberately no CAVA and no mpv on PATH.
           smoke =
             pkgs.runCommand "pulse-smoke-test"
               {
                 nativeBuildInputs = [ (pythonWithDeps pkgs) ];
-                # the loader trick the package uses, minus CAVA and mpv: PULSE
-                # has to survive without a visualizer
                 LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.mpv ];
               }
               ''

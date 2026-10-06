@@ -66,7 +66,9 @@ def _libmpv_candidates() -> list[Path]:
         # NixOS system profile, i.e. whatever environment.systemPackages links
         "/run/current-system/sw/lib",
     ):
-        candidates.extend(Path(directory) / name for name in ("libmpv.so.2", "libmpv.so"))
+        candidates.extend(
+            Path(directory) / name for name in ("libmpv.so.2", "libmpv.so")
+        )
 
     # Nix store: the mpv binary on PATH decides first, so PULSE never mixes a
     # libmpv from one mpv build with the `mpv --ao=help` answer from another
@@ -163,8 +165,11 @@ DEFAULT_DIR = Path(os.environ.get("PULSE_MUSIC_DIR") or Path.home() / "Music")
 # cava raw output settings (must match the generated cava config)
 CAVA_BARS = 64
 
-# Vertical block characters, index = 0..8
+# Vertical block characters, index = 0..8 (index 0 is blank)
 BAR_CHARS = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+
+#: the visible blocks only, for callers that want to detect drawn bars
+BAR_GLYPHS = frozenset(BAR_CHARS[1:])
 
 # Red gradient used for the spectrum: index 0 (bottom, dim) -> N (top, bright)
 GRADIENT = [
@@ -186,7 +191,10 @@ GRADIENT = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="pulse",
-        description="A fully red, terminal-styled TUI music player powered by Textual and mpv.",
+        description=(
+            "A fully red, terminal-styled TUI music player "
+            "powered by Textual and mpv."
+        ),
     )
     parser.add_argument(
         "dir",
@@ -224,7 +232,9 @@ def resolve_audio_output() -> str:
     if result.returncode != 0:
         return "auto"
     available = {
-        words[0] for words in (line.split() for line in result.stdout.splitlines()) if words
+        words[0]
+        for words in (line.split() for line in result.stdout.splitlines())
+        if words
     }
     for name in AUDIO_OUTPUT_PREFERENCE:
         if name in available:
@@ -238,7 +248,11 @@ def scan_music(root: Path) -> list[str]:
         return []
     files: list[Path] = []
     for path in root.rglob("*"):
-        if path.is_file() and path.suffix.lower() in AUDIO_EXTS and not path.name.startswith("."):
+        if (
+            path.is_file()
+            and path.suffix.lower() in AUDIO_EXTS
+            and not path.name.startswith(".")
+        ):
             files.append(path)
     return [str(p) for p in files]
 
@@ -411,7 +425,9 @@ class Visualizer(Static):
 
     def render(self) -> Text:
         if self._cava_missing:
-            return Text("  CAVA not found - visualizer disabled  ", style="italic #7a2020")
+            return Text(
+                "  CAVA not found - visualizer disabled  ", style="italic #7a2020"
+            )
 
         width = max(1, self.size.width)
         height = max(1, self.size.height)
@@ -755,9 +771,7 @@ class PulsePlayer(App):
         if self.player is not None:
             self._repeat_playlist = not self._repeat_playlist
             try:
-                self.player.loop_playlist = (
-                    "inf" if self._repeat_playlist else "no"
-                )
+                self.player.loop_playlist = "inf" if self._repeat_playlist else "no"
             except AttributeError:
                 pass
 
@@ -771,8 +785,8 @@ class PulsePlayer(App):
         pane.set_class(hidden, "-hidden")
         now = self.query_one("#now-pane", Vertical)
         # no-lib, not with-lib: the full-width rule belongs on the state where
-        # the library is gone, otherwise now-pane overflows and clips the
-        # right edge of the spectrum
+        # the library is gone, otherwise now-pane overflows the row and clips
+        # the right edge of the spectrum
         now.set_class(hidden, "no-lib")
 
     def action_toggle_visualizer(self) -> None:
@@ -808,9 +822,7 @@ def main() -> None:
     args = parse_args()
     files = scan_music(Path(args.dir))
     if not files:
-        sys.stderr.write(
-            f"pulse: no audio files found under '{args.dir}'\n"
-        )
+        sys.stderr.write(f"pulse: no audio files found under '{args.dir}'\n")
         sys.exit(1)
     PulsePlayer(files).run()
 

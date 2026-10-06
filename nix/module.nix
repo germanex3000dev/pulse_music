@@ -1,6 +1,6 @@
 # PULSE module for NixOS.
 #
-# Home Manager users want ./home-manager.nix instead - the only difference is
+# Home Manager users want ./home-manager.nix instead: the only difference is
 # that Home Manager collects packages in `home.packages`.
 {
   config,
@@ -11,12 +11,11 @@
 
 let
   cfg = config.programs.pulse;
-  pulsePackage = import ./pulse-package.nix { inherit config lib pkgs; };
 in
 {
-  imports = [ ./options.nix ];
+  imports = [ ./common.nix ];
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ pulsePackage ];
+    environment.systemPackages = [ (import ./resolve.nix { inherit config lib pkgs; }) ];
   };
 }

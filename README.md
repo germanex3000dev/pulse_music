@@ -358,10 +358,10 @@ pulse/
 │   ├── package.nix        # the derivation
 │   ├── deps.nix           # shared Python environment
 │   ├── source.nix         # store source, minus venv/results
-│   ├── options.nix        # shared module options
+│   ├── common.nix         # shared module options
+│   ├── resolve.nix        # musicDir -> wrapper glue
 │   ├── module.nix         # NixOS module
-│   ├── home-manager.nix   # Home Manager module
-│   └── pulse-package.nix  # musicDir -> wrapper glue
+│   └── home-manager.nix   # Home Manager module
 ├── tests/
 │   └── test_smoke.py     # libmpv discovery, audio output, layout, mount
 └── assets/

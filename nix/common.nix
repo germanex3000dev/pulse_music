@@ -1,16 +1,16 @@
 # PULSE option declarations, shared by the NixOS and Home Manager modules.
 #
-# Both entry points need the same three options; the only thing that differs
-# between the two systems is where installed packages are collected -
-# `environment.systemPackages` on NixOS, `home.packages` on Home Manager.
+# Both systems declare the same options and resolve the package the same way
+# (see ./resolve.nix). The only difference is where installed packages are
+# collected, which is why there are two thin entry points: ./module.nix and
+# ./home-manager.nix.
 { lib, pkgs, ... }:
 
 {
   options.programs.pulse = {
     enable = lib.mkEnableOption "PULSE, the terminal-native music player";
 
-    # nullable so this works even when PULSE is not in nixpkgs and no overlay
-    # is applied: nix/pulse-package.nix falls back to calling ./package.nix
+    # nullable so the module works without the flake or an overlay applied
     package = lib.mkPackageOption pkgs "pulse" {
       nullable = true;
       default = null;
