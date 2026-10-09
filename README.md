@@ -3,7 +3,7 @@
 ### A terminal-native music player with a heartbeat.
 
 **PULSE** is a lightweight, keyboard-driven TUI music player built with
-**Python**, **Textual**, **mpv**, and **CAVA**.
+**Python**, **Textual**, **mpv**, optional **MPD**, and **CAVA**.
 
 It is designed around a simple idea: local music playback should feel
 fast, focused, and look ridiculously good in a terminal.
@@ -16,7 +16,7 @@ fast, focused, and look ridiculously good in a terminal.
 
 ## ✦ Features
 
--   Local music playback powered by **mpv**
+-   Local music playback powered by **mpv** by default, with optional **MPD** daemon support
 -   Recursive music-library scanning
 -   Tree-based library browser
 -   Track and album views
@@ -52,10 +52,39 @@ PULSE is currently aimed at Linux systems with:
 -   Python packages:
     -   `textual`
     -   `rich`
-    -   `python-mpv`
+    -   `python-mpv` (for the default MPV backend)
+    -   `python-mpd2` (for the optional MPD backend)
 
 If you're using PipeWire, the included CAVA configuration uses its
 PipeWire input backend.
+
+### MPD backend
+
+MPV remains the default and requires no configuration changes. To use an
+already-running MPD server instead:
+
+``` bash
+PULSE_BACKEND=mpd pulse
+```
+
+PULSE reads the track list from MPD's music database, then uses the same
+keyboard controls and library UI. Selecting a track loads the library into
+PULSE's MPD queue. Make sure MPD's music directory is configured and its
+database is up to date before launching PULSE.
+
+Connection settings are optional environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PULSE_BACKEND` | `mpv` | Playback backend: `mpv` or `mpd` |
+| `PULSE_MPD_HOST` | `127.0.0.1` | MPD server host |
+| `PULSE_MPD_PORT` | `6600` | MPD server port |
+| `PULSE_MPD_PASSWORD` | unset | MPD password, if configured |
+| `PULSE_MPD_TIMEOUT` | `3` | Connection timeout in seconds |
+
+In MPD mode, the optional directory argument is ignored because MPD's database
+is the source of truth. The CAVA visualizer continues to capture the system's
+audio output independently of the playback backend.
 
 ------------------------------------------------------------------------
 
@@ -89,7 +118,7 @@ nix build
 For hacking on it:
 
 ``` bash
-nix develop          # python3 + mpv + cava, no venv needed
+nix develop          # Python dependencies + mpv, mpd and cava, no venv needed
 python main.py
 nix flake check      # tests: PULSE starts, finds libmpv, toggles cleanly
 nix fmt              # format the Nix files
