@@ -68,20 +68,53 @@ class PulseTestCase(unittest.TestCase):
 
 class LibmpvTest(PulseTestCase):
     def test_libmpv_is_discoverable(self):
-        # main._prepare_libmpv() has to make this work, otherwise `import mpv`
-        # raises OSError before the app even starts
+        # MPV is loaded lazily, so explicitly prepare the loader here.
+        main._prepare_libmpv()
         self.assertIsNotNone(ctypes.util.find_library("mpv"))
 
     def test_libmpv_is_actually_usable(self):
-        # finding the name is not enough: a libmpv with unmet dependencies
-        # fails at CDLL time instead
+        # Finding the name is not enough: unmet shared-library dependencies
+        # also make the actual load fail.
+        main._prepare_libmpv()
         found = ctypes.util.find_library("mpv")
+        self.assertIsNotNone(found)
         self.assertIsNotNone(ctypes.CDLL(found))
 
     def test_explicit_override_is_first_candidate(self):
         override = "/custom/libmpv.so.2"
         with mock.patch.dict(os.environ, {"PULSE_LIBMPV": override}):
             self.assertEqual(str(main._libmpv_candidates()[0]), override)
+
+
+class BackendSelectionTest(PulseTestCase):
+    def test_mpv_is_the_default_backend(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(main.selected_backend(), "mpv")
+
+    def test_mpd_can_be_selected(self):
+        with mock.patch.dict(os.environ, {"PULSE_BACKEND": "mpd"}):
+            self.assertEqual(main.selected_backend(), "mpd")
+
+    def test_invalid_backend_is_rejected(self):
+        with mock.patch.dict(os.environ, {"PULSE_BACKEND": "vlc"}):
+            with self.assertRaises(ValueError):
+                main.selected_backend()
+
+    def test_mpd_library_uses_supported_relative_paths(self):
+        class FakeMPD:
+            def listall(self):
+                return [
+                    {"file": "Album/track.flac"},
+                    {"file": "Album/cover.jpg"},
+                    {"file": ".hidden/secret.mp3"},
+                    {"directory": "Album"},
+                    {"file": "Other/song.mp3"},
+                ]
+
+        self.assertEqual(
+            main.mpd_music_files(FakeMPD()),
+            ["Album/track.flac", "Other/song.mp3"],
+        )
 
 
 class AudioOutputTest(PulseTestCase):
