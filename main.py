@@ -136,7 +136,7 @@ from textual.containers import Horizontal, Vertical
 from textual.theme import Theme
 from textual.timer import Timer
 from textual.widget import Widget
-from textual.widgets import Header, ProgressBar, Static, Tree
+from textual.widgets import Header, Input, ProgressBar, Static, Tree
 
 RED_THEME = Theme(
     name="pulse-red",
@@ -495,6 +495,7 @@ class BindBar(Widget):
         ("←/→", "Seek"),
         ("↑/↓", "Volume"),
         ("s", "Library"),
+        ("/", "Search"),
         ("v", "Viz"),
         ("r", "Repeat"),
         ("m", "Mute"),
@@ -516,17 +517,21 @@ class PulsePlayer(App):
     CSS_PATH = "pulse.tcss"
 
     BINDINGS = [
-        Binding("space", "toggle", "Play/Pause", priority=True),
-        Binding("n", "next", "Next", priority=True),
-        Binding("p", "prev", "Prev", priority=True),
+        # no priority flags: while the search field has focus every key must
+        # reach it, so PULSE keys only apply when nothing editable is focused
+        Binding("space", "toggle", "Play/Pause"),
+        Binding("n", "next", "Next"),
+        Binding("p", "prev", "Prev"),
         Binding("right", "seek_fwd", "+10s"),
         Binding("left", "seek_back", "-10s"),
         Binding("up", "vol_up", "Vol+"),
         Binding("down", "vol_down", "Vol-"),
-        Binding("s", "toggle_library", "Library", priority=True),
-        Binding("v", "toggle_visualizer", "Viz", priority=True),
-        Binding("r", "repeat", "Repeat", priority=True),
-        Binding("m", "mute", "Mute", priority=True),
+        Binding("s", "toggle_library", "Library"),
+        Binding("/", "search", "Search"),
+        Binding("v", "toggle_visualizer", "Viz"),
+        Binding("r", "repeat", "Repeat"),
+        Binding("m", "mute", "Mute"),
+        Binding("escape", "clear_search", "Clear"),
         Binding("q", "quit", "Quit", priority=True),
     ]
 
@@ -548,6 +553,14 @@ class PulsePlayer(App):
         yield Header(show_clock=False)
         yield Horizontal(
             Vertical(
+                Input(
+                    placeholder="search tracks...",
+                    id="lib-search",
+                    classes="-hidden",
+                    # starts disabled so the hidden field is never auto-focused
+                    # and never eats PULSE's single-letter keys
+                    disabled=True,
+                ),
                 Static("LIBRARY", id="lib-title"),
                 Tree[str]("Library", id="lib-tree"),
                 id="library-pane",
@@ -575,17 +588,29 @@ class PulsePlayer(App):
 
     def _build_tree(self) -> None:
         tree = self.query_one("#lib-tree", Tree)
+        tree.clear()
         tree.root.expand()
         self._track_paths = sorted(self.music_files)
+
+        query = self.query_one("#lib-search", Input).value.strip().lower()
+        if query:
+            terms = query.split()
+            paths = [
+                p
+                for p in self._track_paths
+                if all(t in Path(p).name.lower() for t in terms)
+            ]
+        else:
+            paths = list(self._track_paths)
 
         tracks = tree.root.add("Tracks", data=None, expand=True)
         album_root = tree.root.add("Albums", data=None, expand=True)
 
-        for p in self._track_paths:
+        for p in paths:
             tracks.add_leaf(Path(p).name, data=p)
 
         albums: dict[str, list[tuple[str, str]]] = {}
-        for p in self._track_paths:
+        for p in paths:
             name = Path(p).name
             folder = Path(p).parent.name or "Unknown Album"
             albums.setdefault(folder, []).append((name, p))
@@ -779,9 +804,60 @@ class PulsePlayer(App):
         if self.player is not None:
             self.player.mute = not self.player.mute
 
+    def action_search(self) -> None:
+        pane = self.query_one("#library-pane", Vertical)
+        pane.remove_class("-hidden")
+        search = self.query_one("#lib-search", Input)
+        search.disabled = False
+        search.remove_class("-hidden")
+        search.focus()
+
+    def _hide_search(self) -> None:
+        """Take the search field back off screen and drop its query.
+
+        Hiding it while keeping the filter would silently leave a library the
+        user can no longer see the state of, so the field and the filter go
+        away together.
+        """
+        search = self.query_one("#lib-search", Input)
+        if search.has_focus:
+            search.blur()
+        self.set_focus(None)
+        search.value = ""
+        search.add_class("-hidden")
+        search.disabled = True
+
+    @on(Input.Changed)
+    def _on_search_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "lib-search":
+            self._build_tree()
+
+    @on(Input.Submitted)
+    def _on_search_submitted(self, event: Input.Submitted) -> None:
+        """Enter plays the first match and puts the search field away."""
+        if event.input.id != "lib-search":
+            return
+        tree = self.query_one("#lib-tree", Tree)
+        tracks = next(
+            (n for n in tree.root.children if str(n.label) == "Tracks"), None
+        )
+        if tracks is not None and tracks.children:
+            node = tracks.children[0]
+            self._play(self._track_paths.index(str(node.data)))
+        self._hide_search()
+
+    def action_clear_search(self) -> None:
+        """Escape leaves the search field and closes it."""
+        search = self.query_one("#lib-search", Input)
+        if search.has_focus:
+            self._hide_search()
+
     def action_toggle_library(self) -> None:
         pane = self.query_one("#library-pane", Vertical)
         hidden = not pane.has_class("-hidden")
+        if hidden:
+            # don't strand an open search field behind a hidden pane
+            self._hide_search()
         pane.set_class(hidden, "-hidden")
         now = self.query_one("#now-pane", Vertical)
         # no-lib, not with-lib: the full-width rule belongs on the state where

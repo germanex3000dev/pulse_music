@@ -19,6 +19,7 @@ fast, focused, and look ridiculously good in a terminal.
 -   Local music playback powered by **mpv**
 -   Recursive music-library scanning
 -   Tree-based library browser
+-   Incremental library search with `/`
 -   Track and album views
 -   Real-time **CAVA** spectrum visualizer (toggle with `V`), degrades
     gracefully when `cava` is not installed
@@ -244,7 +245,8 @@ PipeWire, then PulseAudio, then ALSA.
   `P`       Previous track
   `← / →`   Seek −/+ 10 seconds
   `↑ / ↓`   Volume −/+ 5%
-  `Tab`     Toggle library
+  `S`       Toggle library
+  `/`       Search the library
   `V`       Show / hide visualizer
   `R`       Toggle playlist repeat
   `M`       Mute / Unmute
@@ -253,13 +255,17 @@ PipeWire, then PulseAudio, then ALSA.
 The controls are also displayed inside the UI, so you don't have to
 memorize anything.
 
-`Tab` and `V` can be combined freely --- hiding the library widens the
+`S` and `V` can be combined freely --- hiding the library widens the
 now-playing area to the full row, and hiding the visualizer gives the track
 title the whole pane. Toggling either one repeatedly always lands back on the
 same layout.
 
 PULSE always opens with the library loaded but **paused** --- the first
 track is selected and ready, but nothing plays until you press `Space`.
+
+Press `/` to filter the library as you type. Space-separated terms all have
+to match the file name, `Enter` plays the first hit, and `Esc` closes the
+field again. The field also closes when you hide the library with `S`.
 
 ------------------------------------------------------------------------
 
@@ -432,7 +438,7 @@ V1.1 brought:
 
 Possible future additions:
 
--   [ ] Search
+-   [x] Search
 -   [ ] Metadata display
 -   [ ] Playlists
 -   [ ] Queue management

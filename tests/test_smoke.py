@@ -20,6 +20,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from textual.containers import Vertical  # noqa: E402
+from textual.widgets import Input, Tree  # noqa: E402
 
 import main  # noqa: E402
 from main import PulsePlayer, Visualizer, resolve_audio_output  # noqa: E402
@@ -113,7 +114,7 @@ class LibraryToggleLayoutTest(PulseTestCase):
 
             for step in range(TABS):
                 if step:
-                    await pilot.press("tab")
+                    await pilot.press("s")
                 await self.settle(pilot, viz)
 
                 region = now.region
@@ -158,7 +159,7 @@ class VisualizerFitTest(PulseTestCase):
 
             for step in range(TABS):
                 if step:
-                    await pilot.press("tab")
+                    await pilot.press("s")
                 await self.settle(pilot, viz)
 
                 region = viz.region
@@ -171,14 +172,59 @@ class VisualizerFitTest(PulseTestCase):
 
         self.run_app(body)
 
+    def test_search_filters_tracks_and_plays_the_first_hit(self):
+        tracks = ["/m/Air.mp3", "/m/Blue.mp3", "/m/Red.mp3"]
+
+        async def body(app, pilot):
+            tree = app.query_one(Tree[str])
+
+            def visible():
+                tracks_node = next(
+                    n for n in tree.root.children if str(n.label) == "Tracks"
+                )
+                return [str(c.label) for c in tracks_node.children]
+
+            self.assertEqual(visible(), ["Air.mp3", "Blue.mp3", "Red.mp3"])
+
+            await pilot.press("/")
+            for key in "re":
+                await pilot.press(key)
+            self.assertEqual(visible(), ["Red.mp3"])
+
+            # Esc closes the field and the filter it applied goes with it
+            await pilot.press("escape")
+            self.assertIsNone(app.focused)
+            self.assertTrue(app.query_one("#lib-search", Input).has_class("-hidden"))
+            self.assertEqual(visible(), ["Air.mp3", "Blue.mp3", "Red.mp3"])
+
+            # hidden field must not steal keys from the rest of the app
+            await pilot.press("s")
+            await pilot.pause()
+            self.assertTrue(
+                app.query_one("#library-pane", Vertical).has_class("-hidden"),
+                "a hidden search field swallowed the S keybind",
+            )
+            await pilot.press("s")
+            await pilot.pause()
+
+            await pilot.press("/")
+            for key in "blue":
+                await pilot.press(key)
+            await pilot.press("enter")
+            self.assertEqual(app.current_path, "/m/Blue.mp3")
+            self.assertTrue(app.query_one("#lib-search", Input).has_class("-hidden"))
+            self.assertEqual(visible(), ["Air.mp3", "Blue.mp3", "Red.mp3"])
+
+        self.run_app(body, music=tracks)
+
     def test_spectrum_survives_hiding_the_visualizer(self):
-        # V collapses the box to zero; TAB afterwards must not resurrect a
+        # V collapses the box to zero; S afterwards must not resurrect a
         # stale width
         async def body(app, pilot):
             viz = self.freeze_spectrum(app)
             await pilot.press("v")
-            await pilot.press("tab")
-            await pilot.press("tab")
+            await pilot.press("s")
+            await pilot.press("s")
             await self.settle(pilot, viz)
             self.assertEqual(viz.size.width, 0)
 

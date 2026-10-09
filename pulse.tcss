@@ -49,6 +49,23 @@ HeaderIcon {
     display: none;
 }
 
+#lib-search {
+    height: 3;
+    background: #0d0d0d;
+    border: none;
+    padding: 0 1;
+    color: #ffb0b0;
+}
+
+#lib-search:focus {
+    background: #1c0a0a;
+    color: #ffffff;
+}
+
+#lib-search.-hidden {
+    display: none;
+}
+
 #lib-title {
     background: #0d0d0d;
     color: #ff5555;
