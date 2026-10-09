@@ -1,5 +1,6 @@
 # Package for PULSE, the terminal-native music player.
 #
+# MPV remains the default backend; MPD mode is selected with PULSE_BACKEND=mpd.
 # Works with callPackage, with the flake (packages.default / packages.pulse),
 # or through the NixOS and Home Manager modules in this directory.
 #
@@ -55,11 +56,11 @@ stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "Terminal-native TUI music player powered by Textual, mpv and CAVA";
+    description = "Terminal-native TUI music player with MPV and MPD backends, Textual and CAVA";
     longDescription = ''
-      A lightweight, keyboard-driven TUI music player. Local music is played by
-      mpv, the interface is built with Textual, and the spectrum visualizer
-      reads raw bar data from CAVA.
+      A lightweight, keyboard-driven TUI music player. Local playback defaults to
+      mpv, with an optional MPD daemon backend. The interface uses Textual and
+      the spectrum visualizer reads raw bar data from CAVA.
     '';
     license = lib.licenses.mit;
     mainProgram = "pulse";
