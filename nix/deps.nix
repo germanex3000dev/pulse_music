@@ -8,4 +8,5 @@ python3.withPackages (ps: [
   (ps.python-mpv or ps.mpv)
   ps.rich
   ps.textual
+  ps.mpd2
 ])
