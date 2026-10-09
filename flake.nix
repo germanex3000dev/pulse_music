@@ -15,7 +15,7 @@
 
       pulseFor = pkgs: pkgs.callPackage ./nix/package.nix { };
 
-      # PULSE imports textual, rich and python-mpv; the same set feeds the
+      # PULSE imports textual, rich and optional python-mpv / python-mpd2; the same set feeds the
       # package, the dev shell and the tests
       pythonWithDeps = pkgs: import ./nix/deps.nix { inherit (pkgs) python3; };
     in
@@ -36,7 +36,7 @@
             type = "app";
             program = "${pulseFor pkgs}/bin/pulse";
             meta = {
-              description = "Terminal-native TUI music player powered by Textual, mpv and CAVA";
+              description = "Terminal-native TUI music player with MPV and MPD backends, Textual and CAVA";
               platforms = systems;
             };
           };
@@ -47,7 +47,7 @@
         }
       );
 
-      # `nix develop`, then `python main.py`
+      # `nix develop`, then `python main.py`; MPD mode uses PULSE_BACKEND=mpd
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           name = "pulse-dev";
@@ -55,6 +55,7 @@
             (pythonWithDeps pkgs)
             pkgs.mpv
             pkgs.cava
+            pkgs.mpd
           ];
           # the loader trick from nix/package.nix, so the dev shell finds
           # libmpv exactly like the packaged binary does
