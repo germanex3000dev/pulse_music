@@ -2,6 +2,7 @@ import argparse
 import ctypes
 import ctypes.util
 import glob
+import importlib
 import locale
 import os
 import shutil
@@ -117,16 +118,17 @@ def _prepare_libmpv() -> None:
         return
 
 
-_prepare_libmpv()
-
-try:
-    import mpv
-except OSError as exc:  # no libmpv anywhere we know about
-    sys.exit(
-        f"pulse: {exc}\n"
-        "hint: install mpv (on NixOS add `mpv` to environment.systemPackages)\n"
-        "      or set PULSE_LIBMPV=/path/to/libmpv.so.2"
-    )
+def load_mpv_module():
+    """Load python-mpv only when the MPV backend is selected."""
+    _prepare_libmpv()
+    try:
+        return importlib.import_module("mpv")
+    except OSError as exc:  # no libmpv anywhere we know about
+        raise RuntimeError(
+            f"{exc}\n"
+            "hint: install mpv (on NixOS add `mpv` to environment.systemPackages)\n"
+            "      or set PULSE_LIBMPV=/path/to/libmpv.so.2"
+        ) from exc
 
 from rich.text import Text
 from textual import on
@@ -188,12 +190,65 @@ GRADIENT = [
 ]
 
 
+def selected_backend() -> str:
+    """Return the configured playback backend, defaulting to MPV."""
+    backend = os.environ.get("PULSE_BACKEND", "mpv").strip().lower()
+    if backend not in {"mpv", "mpd"}:
+        raise ValueError(
+            f"unknown backend {backend!r}; choose 'mpv' or 'mpd' with PULSE_BACKEND"
+        )
+    return backend
+
+
+def connect_mpd():
+    """Connect to MPD using the standard PULSE_MPD_* environment settings."""
+    try:
+        import mpd
+    except ImportError as exc:
+        raise RuntimeError(
+            "MPD mode requires the python-mpd2 package (called mpd in Python)"
+        ) from exc
+
+    host = os.environ.get("PULSE_MPD_HOST", "127.0.0.1")
+    port = int(os.environ.get("PULSE_MPD_PORT", "6600"))
+    timeout = float(os.environ.get("PULSE_MPD_TIMEOUT", "3"))
+    client = mpd.MPDClient()
+    client.timeout = timeout
+    client.idletimeout = None
+    try:
+        client.connect(host, port)
+        password = os.environ.get("PULSE_MPD_PASSWORD")
+        if password:
+            client.password(password)
+        return client
+    except Exception as exc:
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"could not connect to MPD at {host}:{port}: {exc}"
+        ) from exc
+
+
+def mpd_music_files(client) -> list[str]:
+    """Return supported, non-hidden file paths from MPD's music database."""
+    files = []
+    for item in client.listall():
+        path = item.get("file")
+        if not path or Path(path).suffix.lower() not in AUDIO_EXTS:
+            continue
+        if any(part.startswith(".") for part in Path(path).parts):
+            continue
+        files.append(path)
+    return sorted(set(files))
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="pulse",
         description=(
-            "A fully red, terminal-styled TUI music player "
-            "powered by Textual and mpv."
+            "A red terminal-styled TUI music player with selectable MPV and MPD backends."
         ),
     )
     parser.add_argument(
@@ -530,8 +585,16 @@ class PulsePlayer(App):
         Binding("q", "quit", "Quit", priority=True),
     ]
 
-    def __init__(self, music_files: list[str]) -> None:
+    def __init__(
+        self,
+        music_files: list[str],
+        backend: str = "mpv",
+        mpd_client=None,
+    ) -> None:
         super().__init__()
+        if backend not in {"mpv", "mpd"}:
+            raise ValueError("backend must be 'mpv' or 'mpd'")
+        self.backend = backend
         self.music_files = music_files
         self._track_paths: list[str] = []
         self.current_index: int | None = None
@@ -540,7 +603,14 @@ class PulsePlayer(App):
         self._duration: float | None = None
         self._volume: float | None = 100
         self._repeat_playlist = False
-        self.player: mpv.MPV | None = None
+        self._muted = False
+        self._pre_mute_volume: float | None = None
+        self.player = None
+        self.mpd_client = mpd_client
+        self._mpd_status: dict = {}
+        self._mpd_song: dict = {}
+        self._mpd_queue_loaded = False
+        self._mpd_error_notified = False
         self.register_theme(RED_THEME)
         self.theme = "pulse-red"
 
@@ -601,28 +671,39 @@ class PulsePlayer(App):
             f" {len(self.music_files)} tracks loaded"
         )
 
-        self.player = mpv.MPV(
-            ytdl=False,
-            input_default_bindings=False,
-            input_vo_keyboard=False,
-            vo="null",
-            ao=resolve_audio_output(),
-            keep_open="yes",
-        )
-        self.player.loop = "no"
-        self.player.loop_playlist = "no"
+        if self.backend == "mpv":
+            try:
+                mpv = load_mpv_module()
+                self.player = mpv.MPV(
+                    ytdl=False,
+                    input_default_bindings=False,
+                    input_vo_keyboard=False,
+                    vo="null",
+                    ao=resolve_audio_output(),
+                    keep_open="yes",
+                )
+            except (RuntimeError, OSError) as exc:
+                self.exit(message=f"pulse: {exc}")
+                return
 
-        self.player.observe_property("time-pos", self._on_time_pos)
-        self.player.observe_property("duration", self._on_duration)
-        self.player.observe_property("pause", self._on_pause)
-        self.player.observe_property("volume", self._on_volume)
-        self.player.observe_property("mute", self._on_mute)
-        self.player.observe_property("eof-reached", self._on_eof)
+            self.player.loop = "no"
+            self.player.loop_playlist = "no"
+            self.player.observe_property("time-pos", self._on_time_pos)
+            self.player.observe_property("duration", self._on_duration)
+            self.player.observe_property("pause", self._on_pause)
+            self.player.observe_property("volume", self._on_volume)
+            self.player.observe_property("mute", self._on_mute)
+            self.player.observe_property("eof-reached", self._on_eof)
 
-        if self._track_paths:
-            # start paused: the library is loaded, but nothing plays until
-            # the user hits space
-            self._play(0, autoplay=False)
+            if self._track_paths:
+                # Start paused: nothing plays until the user hits space.
+                self._play(0, autoplay=False)
+        else:
+            if self.mpd_client is None:
+                self.exit(message="pulse: MPD backend selected but no MPD client was supplied")
+                return
+            self._poll_mpd()
+            self.set_interval(0.5, self._poll_mpd)
 
         self.set_focus(None)
 
@@ -650,6 +731,60 @@ class PulsePlayer(App):
 
     def _on_eof(self, _name, value):
         self._marshal(self._on_eof_reached, value)
+
+    def _poll_mpd(self) -> None:
+        """Refresh the UI from MPD without making MPD a UI dependency."""
+        if self.backend != "mpd" or self.mpd_client is None:
+            return
+        try:
+            status = self.mpd_client.status()
+            song = self.mpd_client.currentsong()
+        except Exception as exc:
+            self._mpd_status = {"state": "disconnected"}
+            self._update_status()
+            if not self._mpd_error_notified:
+                self._mpd_error_notified = True
+                self.notify(f"MPD connection lost: {exc}", severity="error")
+            return
+
+        self._mpd_error_notified = False
+        self._mpd_status = status
+        self._mpd_song = song
+        path = song.get("file")
+        if path:
+            self.current_path = path
+            try:
+                self.current_index = self._track_paths.index(path)
+            except ValueError:
+                self.current_index = None
+
+        try:
+            self._pos = float(status.get("elapsed", "0") or 0)
+        except (TypeError, ValueError):
+            self._pos = 0.0
+        duration = status.get("duration") or song.get("duration") or song.get("time")
+        try:
+            self._duration = float(str(duration).split(":")[-1] if ":" in str(duration) else duration)
+        except (TypeError, ValueError):
+            self._duration = None
+        try:
+            self._volume = float(status["volume"]) if int(status.get("volume", -1)) >= 0 else None
+        except (TypeError, ValueError):
+            self._volume = None
+
+        self.query_one("#bar-time", Static).update(
+            f" {fmt_time(self._pos)} / {fmt_time(self._duration)} "
+        )
+        if self._duration:
+            self.query_one("#seek", ProgressBar).progress = (
+                min(1.0, (self._pos or 0) / self._duration) * 100
+            )
+        else:
+            self.query_one("#seek", ProgressBar).progress = 0
+        self.query_one("#vol", Static).update(
+            "MUTED" if self._muted else fmt_volume(self._volume)
+        )
+        self._update_status()
 
     # ----- UI updates (main thread only) -----
 
@@ -704,20 +839,37 @@ class PulsePlayer(App):
     # ----- helpers -----
 
     def _is_paused(self) -> bool:
+        if self.backend == "mpd":
+            return self._mpd_status.get("state") != "play"
         return bool(self.player.pause) if self.player else True
 
     def _state(self) -> str:
+        if self.backend == "mpd":
+            state = self._mpd_status.get("state", "stop")
+            return {
+                "play": "PLAYING",
+                "pause": "PAUSED",
+                "stop": "STOPPED",
+                "disconnected": "MPD DISCONNECTED",
+            }.get(state, "STOPPED")
         if self.player is None:
             return "STOPPED"
         return "PAUSED" if self.player.pause else "PLAYING"
 
     def _title(self) -> str:
+        if self.backend == "mpd" and self._mpd_song:
+            title = self._mpd_song.get("title")
+            artist = self._mpd_song.get("artist")
+            if title and artist:
+                return f"{artist} - {title}"
+            if title:
+                return title
         if self.current_index is None:
             return "Nothing Playing"
         return Path(self.current_path or "").name or "Track"
 
     def _play(self, index: int, autoplay: bool = True) -> None:
-        if self.player is None or not self._track_paths:
+        if not self._track_paths:
             return
         index %= len(self._track_paths)
         self.current_index = index
@@ -727,6 +879,26 @@ class PulsePlayer(App):
         self.query_one("#bar-title", Static).update(f" {self._title()} ")
         self.query_one("#seek", ProgressBar).progress = 0
         self.query_one("#bar-time", Static).update(" --:-- / --:-- ")
+
+        if self.backend == "mpd":
+            if self.mpd_client is None:
+                return
+            try:
+                if not self._mpd_queue_loaded:
+                    self.mpd_client.clear()
+                    for path in self._track_paths:
+                        self.mpd_client.add(path)
+                    self._mpd_queue_loaded = True
+                self.mpd_client.play(index)
+                if not autoplay:
+                    self.mpd_client.pause(1)
+                self._poll_mpd()
+            except Exception as exc:
+                self.notify(f"MPD playback failed: {exc}", severity="error")
+            return
+
+        if self.player is None:
+            return
         self.player.play(self.current_path)
         if not autoplay:
             # load the track without letting any audio out
@@ -736,15 +908,52 @@ class PulsePlayer(App):
     # ----- actions -----
 
     def action_toggle(self) -> None:
-        if self.player is not None:
+        if self.backend == "mpd":
+            if self.mpd_client is None:
+                return
+            try:
+                if self._mpd_status.get("state") == "play":
+                    self.mpd_client.pause(1)
+                elif self.current_index is None and self._track_paths:
+                    self._play(0)
+                    return
+                else:
+                    self.mpd_client.play()
+                self._poll_mpd()
+            except Exception as exc:
+                self.notify(f"MPD playback failed: {exc}", severity="error")
+        elif self.player is not None:
             self.player.pause = not self.player.pause
 
     def action_next(self) -> None:
-        if self.current_index is not None:
+        if self.backend == "mpd":
+            if self.mpd_client is None:
+                return
+            if self.current_index is None and self._mpd_status.get("state") == "stop":
+                self._play(0)
+                return
+            try:
+                self.mpd_client.next()
+                self._poll_mpd()
+            except Exception as exc:
+                self.notify(f"MPD next failed: {exc}", severity="error")
+        elif self.current_index is not None:
             self._play(self.current_index + 1)
 
     def action_prev(self) -> None:
-        if self.current_index is None:
+        if self.backend == "mpd":
+            if self.mpd_client is None:
+                return
+            try:
+                if (self._pos or 0) > 3:
+                    self.mpd_client.seekcur("0")
+                else:
+                    self.mpd_client.previous()
+                self._poll_mpd()
+            except Exception as exc:
+                self.notify(f"MPD previous failed: {exc}", severity="error")
+            return
+        if self.current_index is None or self.player is None:
             return
         if self.player.time_pos is not None and self.player.time_pos > 3:
             self.player.seek(0, "absolute")
@@ -752,31 +961,61 @@ class PulsePlayer(App):
             self._play(self.current_index - 1)
 
     def action_vol_up(self) -> None:
-        if self.player is not None:
+        if self.backend == "mpd":
+            if self.mpd_client is not None:
+                self.mpd_client.setvol(min(100, int(self._volume or 0) + 5))
+                self._poll_mpd()
+        elif self.player is not None:
             self.player.volume = min(130, (self.player.volume or 0) + 5)
 
     def action_vol_down(self) -> None:
-        if self.player is not None:
+        if self.backend == "mpd":
+            if self.mpd_client is not None:
+                self.mpd_client.setvol(max(0, int(self._volume or 0) - 5))
+                self._poll_mpd()
+        elif self.player is not None:
             self.player.volume = max(0, (self.player.volume or 0) - 5)
 
     def action_seek_fwd(self) -> None:
-        if self.player is not None:
+        if self.backend == "mpd":
+            if self.mpd_client is not None:
+                self.mpd_client.seekcur("+10")
+                self._poll_mpd()
+        elif self.player is not None:
             self.player.time_pos = (self.player.time_pos or 0) + 10
 
     def action_seek_back(self) -> None:
-        if self.player is not None:
+        if self.backend == "mpd":
+            if self.mpd_client is not None:
+                self.mpd_client.seekcur("-10")
+                self._poll_mpd()
+        elif self.player is not None:
             self.player.time_pos = max(0, (self.player.time_pos or 0) - 10)
 
     def action_repeat(self) -> None:
-        if self.player is not None:
-            self._repeat_playlist = not self._repeat_playlist
+        self._repeat_playlist = not self._repeat_playlist
+        if self.backend == "mpd" and self.mpd_client is not None:
+            self.mpd_client.repeat(1 if self._repeat_playlist else 0)
+            self._poll_mpd()
+        elif self.player is not None:
             try:
                 self.player.loop_playlist = "inf" if self._repeat_playlist else "no"
             except AttributeError:
                 pass
 
     def action_mute(self) -> None:
-        if self.player is not None:
+        if self.backend == "mpd":
+            if self.mpd_client is None:
+                return
+            if not self._muted:
+                self._pre_mute_volume = self._volume
+                self.mpd_client.setvol(0)
+                self._muted = True
+            else:
+                self.mpd_client.setvol(int(self._pre_mute_volume or 50))
+                self._muted = False
+            self._poll_mpd()
+        elif self.player is not None:
             self.player.mute = not self.player.mute
 
     def action_toggle_library(self) -> None:
@@ -816,15 +1055,48 @@ class PulsePlayer(App):
         self.player = None
         if player is not None:
             player.terminate()
+        if self.mpd_client is not None:
+            try:
+                self.mpd_client.close()
+            except Exception:
+                pass
+            try:
+                self.mpd_client.disconnect()
+            except Exception:
+                pass
 
 
 def main() -> None:
     args = parse_args()
-    files = scan_music(Path(args.dir))
-    if not files:
-        sys.stderr.write(f"pulse: no audio files found under '{args.dir}'\n")
-        sys.exit(1)
-    PulsePlayer(files).run()
+    try:
+        backend = selected_backend()
+    except ValueError as exc:
+        sys.exit(f"pulse: {exc}")
+
+    mpd_client = None
+    if backend == "mpd":
+        try:
+            mpd_client = connect_mpd()
+            files = mpd_music_files(mpd_client)
+        except Exception as exc:
+            if mpd_client is not None:
+                try:
+                    mpd_client.disconnect()
+                except Exception:
+                    pass
+            sys.exit(f"pulse: {exc}")
+        if not files:
+            try:
+                mpd_client.disconnect()
+            except Exception:
+                pass
+            sys.exit("pulse: MPD's music database has no supported audio files; update the MPD database first")
+    else:
+        files = scan_music(Path(args.dir))
+        if not files:
+            sys.exit(f"pulse: no audio files found under '{args.dir}'")
+
+    PulsePlayer(files, backend=backend, mpd_client=mpd_client).run()
 
 
 if __name__ == "__main__":
