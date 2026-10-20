@@ -8,6 +8,10 @@
 It is designed around a simple idea: local music playback should feel
 fast, focused, and look ridiculously good in a terminal.
 
+### LATEST UPDATE:
+
+- Shuffle toggle with `X`
+
 ![PULSE library and visualizer](assets/pulse-library.png)
 
 ![PULSE alternate library view](assets/pulse-visualizer.png)
