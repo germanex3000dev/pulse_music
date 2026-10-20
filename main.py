@@ -498,6 +498,7 @@ class BindBar(Widget):
         ("/", "Search"),
         ("v", "Viz"),
         ("r", "Repeat"),
+        ("x", "Shuffle"),
         ("m", "Mute"),
         ("q", "Quit"),
     ]
@@ -530,6 +531,7 @@ class PulsePlayer(App):
         Binding("/", "search", "Search"),
         Binding("v", "toggle_visualizer", "Viz"),
         Binding("r", "repeat", "Repeat"),
+        Binding("x", "shuffle", "Shuffle"),
         Binding("m", "mute", "Mute"),
         Binding("escape", "clear_search", "Clear"),
         Binding("q", "quit", "Quit", priority=True),
@@ -545,6 +547,9 @@ class PulsePlayer(App):
         self._duration: float | None = None
         self._volume: float | None = 100
         self._repeat_playlist = False
+        self._shuffle = False
+        self._shuffle_order: list[int] = []
+        self._shuffle_index: int = -1
         self.player: mpv.MPV | None = None
         self.register_theme(RED_THEME)
         self.theme = "pulse-red"
@@ -716,7 +721,12 @@ class PulsePlayer(App):
             f" {fmt_time(self._duration)} / {fmt_time(self._duration)} "
         )
         if not self._is_paused():
-            self._play(self.current_index + 1 if self.current_index is not None else 0)
+            if self._shuffle:
+                next_idx = self._shuffle_next_index()
+                if next_idx is not None:
+                    self._play(next_idx)
+            else:
+                self._play(self.current_index + 1 if self.current_index is not None else 0)
 
     def _update_status(self):
         state = self._state()
@@ -734,7 +744,15 @@ class PulsePlayer(App):
     def _state(self) -> str:
         if self.player is None:
             return "STOPPED"
-        return "PAUSED" if self.player.pause else "PLAYING"
+        state = "PAUSED" if self.player.pause else "PLAYING"
+        flags = []
+        if self._repeat_playlist:
+            flags.append("REPEAT")
+        if self._shuffle:
+            flags.append("SHUFFLE")
+        if flags:
+            state += " [" + " ".join(flags) + "]"
+        return state
 
     def _title(self) -> str:
         if self.current_index is None:
@@ -766,7 +784,12 @@ class PulsePlayer(App):
 
     def action_next(self) -> None:
         if self.current_index is not None:
-            self._play(self.current_index + 1)
+            if self._shuffle:
+                next_idx = self._shuffle_next_index()
+                if next_idx is not None:
+                    self._play(next_idx)
+            else:
+                self._play(self.current_index + 1)
 
     def action_prev(self) -> None:
         if self.current_index is None:
@@ -774,7 +797,12 @@ class PulsePlayer(App):
         if self.player.time_pos is not None and self.player.time_pos > 3:
             self.player.seek(0, "absolute")
         else:
-            self._play(self.current_index - 1)
+            if self._shuffle:
+                prev_idx = self._shuffle_prev_index()
+                if prev_idx is not None:
+                    self._play(prev_idx)
+            else:
+                self._play(self.current_index - 1)
 
     def action_vol_up(self) -> None:
         if self.player is not None:
@@ -799,6 +827,49 @@ class PulsePlayer(App):
                 self.player.loop_playlist = "inf" if self._repeat_playlist else "no"
             except AttributeError:
                 pass
+
+    def _rebuild_shuffle_order(self) -> None:
+        """Generate a new random shuffle order for all tracks."""
+        import random
+
+        if not self._track_paths:
+            self._shuffle_order = []
+            self._shuffle_index = -1
+            return
+        n = len(self._track_paths)
+        self._shuffle_order = list(range(n))
+        random.shuffle(self._shuffle_order)
+
+    def _shuffle_next_index(self) -> int | None:
+        """Get the next index in shuffle order, or None if no tracks."""
+        if not self._shuffle_order:
+            return None
+        self._shuffle_index = (self._shuffle_index + 1) % len(self._shuffle_order)
+        return self._shuffle_order[self._shuffle_index]
+
+    def _shuffle_prev_index(self) -> int | None:
+        """Get the previous index in shuffle order, or None if no tracks."""
+        if not self._shuffle_order:
+            return None
+        self._shuffle_index = (self._shuffle_index - 1) % len(self._shuffle_order)
+        return self._shuffle_order[self._shuffle_index]
+
+    def action_shuffle(self) -> None:
+        if self.player is None:
+            return
+        self._shuffle = not self._shuffle
+        if self._shuffle:
+            self._rebuild_shuffle_order()
+            # Find current track in shuffle order and set shuffle_index
+            if self.current_index is not None:
+                try:
+                    self._shuffle_index = self._shuffle_order.index(self.current_index)
+                except ValueError:
+                    self._shuffle_index = -1
+        else:
+            self._shuffle_order = []
+            self._shuffle_index = -1
+        self._update_status()
 
     def action_mute(self) -> None:
         if self.player is not None:
