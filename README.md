@@ -249,6 +249,7 @@ PipeWire, then PulseAudio, then ALSA.
   `/`       Search the library
   `V`       Show / hide visualizer
   `R`       Toggle playlist repeat
+  `X`       Toggle shuffle
   `M`       Mute / Unmute
   `Q`       Quit
 
@@ -403,9 +404,16 @@ implement more colors and maybe even matugen/wallust support in later Versions.
 
 ##  Status
 
-**PULSE V1.2 --- Complete**
+**PULSE V1.3 --- Complete**
 
-V1.2 brings:
+I added timestamps here, too. I like to keep "journals", where I can look back at the progress.
+
+(20.10.2026, 21:26) V1.3 brings:
+
+-   Shuffle toggle with `X`
+(Might be small, but it's progress, I don't care)
+
+V1.2 brought:
 
 -   Native Nix support: `nix run`, `nix build`, `nix profile install`
 -   NixOS and Home Manager modules (`programs.pulse`)
@@ -442,7 +450,7 @@ Possible future additions:
 -   [ ] Metadata display
 -   [ ] Playlists
 -   [ ] Queue management
--   [ ] Shuffle
+-   [x] Shuffle
 -   [ ] Config file
 -   [ ] Persistent volume / playback state
 -   [ ] More visualizer modes
