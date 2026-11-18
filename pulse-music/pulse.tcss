@@ -1,4 +1,4 @@
-/* PULSE theme - all colors come from ~/.config/pulse-music/config.toml
+/* PULSE theme - all colors come from ~/.config/pulseplayer/config.toml
    (see config.py for the defaults). Do not hardcode colors here;
    reference the $pulse-* variables instead. */
 

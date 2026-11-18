@@ -233,7 +233,7 @@ configure the wrapper:
 | `PULSE_MUSIC_DIR` | Default music directory, used when no directory is passed |
 | `PULSE_AO` | Force an mpv audio output (`pipewire`, `pulse`, `alsa`, `null`) |
 | `PULSE_LIBMPV` | Path to `libmpv.so.2`, for setups where discovery fails |
-| `PULSE_CONFIG` | Path to the color config file (default: `~/.config/pulse-music/config.toml`) |
+| `PULSE_CONFIG` | Path to the color config file (default: `~/.config/pulseplayer/config.toml`) |
 | `XDG_RUNTIME_DIR` | Filled in from `/run/user/$UID` when unset, so PipeWire and PulseAudio sockets are found |
 
 Without `PULSE_AO`, PULSE asks mpv which outputs it supports and prefers
@@ -406,13 +406,13 @@ rest of the player works normally.
 
 ### Colors
 
-Every color PULSE uses comes from `~/.config/pulse-music/config.toml`
+Every color PULSE uses comes from `~/.config/pulseplayer/config.toml`
 (or `$XDG_CONFIG_HOME/pulse/config.toml`; the `PULSE_CONFIG` environment
 variable overrides the location). All keys are optional — anything omitted
 falls back to the red-on-black defaults:
 
 ``` toml
-# ~/.config/pulse-music/config.toml
+# ~/.config/pulseplayer/config.toml
 
 [colors]
 # base - these also feed the Textual theme

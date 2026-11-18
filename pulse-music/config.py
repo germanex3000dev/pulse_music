@@ -74,7 +74,7 @@ def config_path() -> Path:
     env_path = os.environ.get("PULSE_CONFIG")
     if env_path:
         return Path(env_path).expanduser()
-    return user_config_path("pulse-music") / "config.toml"
+    return user_config_path("pulseplayer") / "config.toml"
 
 
 @dataclass(frozen=True)
