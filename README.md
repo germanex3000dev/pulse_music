@@ -30,7 +30,7 @@ fast, focused, and look ridiculously good in a terminal.
 -   Native **Nix** support: `nix run`, a NixOS/Home Manager module, and a dev
     shell
 -   Starts paused, so PULSE never interrupts you on launch
--   Custom red-on-black terminal theme
+-   Custom red-on-black terminal theme, configurable via `config.toml`
 -   Fully keyboard-driven controls
 -   Playlist repeat
 -   Mute support
@@ -233,6 +233,7 @@ configure the wrapper:
 | `PULSE_MUSIC_DIR` | Default music directory, used when no directory is passed |
 | `PULSE_AO` | Force an mpv audio output (`pipewire`, `pulse`, `alsa`, `null`) |
 | `PULSE_LIBMPV` | Path to `libmpv.so.2`, for setups where discovery fails |
+| `PULSE_CONFIG` | Path to the color config file (default: `~/.config/pulse/config.toml`) |
 | `XDG_RUNTIME_DIR` | Filled in from `/run/user/$UID` when unset, so PipeWire and PulseAudio sockets are found |
 
 Without `PULSE_AO`, PULSE asks mpv which outputs it supports and prefers
@@ -364,6 +365,7 @@ A minimal installation looks like:
 pulse/
 ├── pulse-music/
 │   ├── main.py
+│   ├── config.py
 │   └── pulse.tcss
 ├── flake.nix
 ├── nix/
@@ -402,8 +404,61 @@ there is no separate CAVA configuration file to maintain. If `cava` is not
 installed, PULSE shows a short notice instead of a blank spectrum and the
 rest of the player works normally.
 
-You're also free to modify `pulse.tcss` to add your own colors. I will 
-implement more colors and maybe even matugen/wallust support in later Versions.
+### Colors
+
+Every color PULSE uses comes from `~/.config/pulse/config.toml`
+(or `$XDG_CONFIG_HOME/pulse/config.toml`; the `PULSE_CONFIG` environment
+variable overrides the location). All keys are optional — anything omitted
+falls back to the red-on-black defaults:
+
+``` toml
+# ~/.config/pulse/config.toml
+
+[colors]
+# base - these also feed the Textual theme
+background     = "#000000"   # Screen, Header, panes
+surface        = "#0a0a0a"   # library pane, tree, header/progress rows
+panel          = "#0d0d0d"   # search bar, library title
+foreground     = "#ffcfcf"   # theme foreground
+primary        = "#ff3333"   # visualizer, progress bar
+secondary      = "#b31212"   # theme secondary
+accent         = "#ff5555"   # library title, theme warning/success
+error          = "#ff2222"   # scrollbar grabber text
+# text
+text           = "#ff6b6b"   # screen text, track title
+title          = "#ff2a2a"   # header
+subtitle       = "#ff8080"   # header subtitle, bar title
+label          = "#ffb0b0"   # search text, tree labels
+muted          = "#ff8a8a"   # tree text, keybind bar
+time           = "#ff9b9b"   # time + volume readouts
+dim            = "#5a2a2a"   # tree guides
+notice         = "#7a2020"   # "CAVA not found" notice
+focus_text     = "#ffffff"   # text on highlighted items
+progress       = "#ff1a1a"   # progress bar label
+progress_text  = "#ffdddd"   # progress bar fill text
+# state backgrounds
+highlight_bg   = "#1c0a0a"   # focused search + tree highlight
+cursor_bg      = "#330d0d"   # tree cursor
+selected_bg    = "#471111"   # tree selected item
+track          = "#1a1a1a"   # progress + scrollbar tracks
+scrollbar      = "#c21818"   # scrollbar color
+scrollbar_track= "#3a0a0a"   # scrollbar bar background
+expander       = "#ff4444"   # tree expander + scrollbar bar text
+
+[gradient]                    # visualizer spectrum, bottom -> top
+colors = ["#3a0a0a", "#4a0d0d", "#5c1010", "#701515",
+          "#8a1818", "#a02020", "#c22828", "#e03030",
+          "#ff3333", "#ff5a5a", "#ff8080", "#ffa4a4"]
+```
+
+Colors accept anything Textual understands: hex (`#RRGGBB`, `#RGB`),
+`rgb(r, g, b)`, or named colors (`red`). The gradient needs at least two
+stops. Invalid values don't crash PULSE — a warning is printed to stderr
+and that key falls back to its default. No config file at all is fine too:
+the app starts silently with the default theme.
+
+The `pulse.tcss` file itself only references `$pulse-*` variables now, so
+feel free to restyle the layout there without touching colors.
 
 ------------------------------------------------------------------------
 
@@ -456,7 +511,7 @@ Possible future additions:
 -   [ ] Playlists
 -   [ ] Queue management
 -   [x] Shuffle
--   [ ] Config file
+-   [x] Config file
 -   [ ] Persistent volume / playback state
 -   [ ] More visualizer modes
 -   [x] Installable CLI command

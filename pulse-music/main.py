@@ -133,25 +133,11 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.theme import Theme
 from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Header, Input, ProgressBar, Static, Tree
 
-RED_THEME = Theme(
-    name="pulse-red",
-    primary="#ff3333",
-    secondary="#b31212",
-    accent="#ff5555",
-    warning="#ff5555",
-    error="#ff2222",
-    success="#ff5555",
-    foreground="#ffcfcf",
-    background="#000000",
-    surface="#0a0a0a",
-    panel="#0d0d0d",
-    dark=True,
-)
+from config import Config, load_config
 
 AUDIO_EXTS = {
     ".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac",
@@ -170,22 +156,6 @@ BAR_CHARS = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
 
 #: the visible blocks only, for callers that want to detect drawn bars
 BAR_GLYPHS = frozenset(BAR_CHARS[1:])
-
-# Red gradient used for the spectrum: index 0 (bottom, dim) -> N (top, bright)
-GRADIENT = [
-    "#3a0a0a",
-    "#4a0d0d",
-    "#5c1010",
-    "#701515",
-    "#8a1818",
-    "#a02020",
-    "#c22828",
-    "#e03030",
-    "#ff3333",
-    "#ff5a5a",
-    "#ff8080",
-    "#ffa4a4",
-]
 
 
 def parse_args() -> argparse.Namespace:
@@ -425,8 +395,9 @@ class Visualizer(Static):
 
     def render(self) -> Text:
         if self._cava_missing:
+            notice = self.app.config.colors["notice"]
             return Text(
-                "  CAVA not found - visualizer disabled  ", style="italic #7a2020"
+                "  CAVA not found - visualizer disabled  ", style=f"italic {notice}"
             )
 
         width = max(1, self.size.width)
@@ -449,7 +420,8 @@ class Visualizer(Static):
         left = (width - used_cols) // 2
 
         text = Text()
-        n_grad = len(GRADIENT)
+        gradient = self.app.config.gradient
+        n_grad = len(gradient)
         for r in range(height):
             col_index = 0
             for _c in range(left):
@@ -471,7 +443,7 @@ class Visualizer(Static):
                 if ch != " ":
                     frac_up = from_bottom / max(1, height - 1)
                     idx = min(n_grad - 1, int(frac_up * n_grad))
-                    text.append(ch, style=GRADIENT[idx])
+                    text.append(ch, style=gradient[idx])
                 else:
                     text.append(" ")
                 col_index += 1
@@ -537,7 +509,10 @@ class PulsePlayer(App):
         Binding("q", "quit", "Quit", priority=True),
     ]
 
-    def __init__(self, music_files: list[str]) -> None:
+    def __init__(self, music_files: list[str], config: Config | None = None) -> None:
+        # The configuration has to be stored BEFORE super().__init__(): Textual
+        # calls get_theme_variable_defaults() while building the App's stylesheet.
+        self.config = config if config is not None else Config()
         super().__init__()
         self.music_files = music_files
         self._track_paths: list[str] = []
@@ -551,8 +526,15 @@ class PulsePlayer(App):
         self._shuffle_order: list[int] = []
         self._shuffle_index: int = -1
         self.player: mpv.MPV | None = None
-        self.register_theme(RED_THEME)
+        self.register_theme(self.config.theme())
         self.theme = "pulse-red"
+
+    def get_theme_variable_defaults(self) -> dict[str, str]:
+        """Supply the user's colors to the TCSS engine."""
+        return {
+            **super().get_theme_variable_defaults(),
+            **self.config.css_variables(),
+        }
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -971,7 +953,10 @@ def main() -> None:
     if not files:
         sys.stderr.write(f"pulse: no audio files found under '{args.dir}'\n")
         sys.exit(1)
-    PulsePlayer(files).run()
+    config = load_config()
+    for warning in config.warnings:
+        sys.stderr.write(f"pulse: {warning}\n")
+    PulsePlayer(files, config).run()
 
 
 if __name__ == "__main__":

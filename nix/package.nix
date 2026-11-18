@@ -39,6 +39,7 @@ stdenv.mkDerivation {
 
     install -Dm644 pulse-music/main.py "$out/libexec/pulse/main.py"
     install -Dm644 pulse-music/pulse.tcss "$out/libexec/pulse/pulse.tcss"
+    install -Dm644 pulse-music/config.py "$out/libexec/pulse/config.py"
 
     makeWrapper ${pythonWithDeps}/bin/python3 "$out/bin/pulse" \
       --add-flags "$out/libexec/pulse/main.py" \

@@ -1,26 +1,30 @@
+/* PULSE theme - all colors come from ~/.config/pulse/config.toml
+   (see config.py for the defaults). Do not hardcode colors here;
+   reference the $pulse-* variables instead. */
+
 Screen {
-    background: #000000;
-    color: #ff6b6b;
+    background: $pulse-background;
+    color: $pulse-text;
     layout: vertical;
 }
 
 Header {
-    background: #000000;
-    color: #ff2a2a;
+    background: $pulse-background;
+    color: $pulse-title;
     text-style: bold;
     height: 1;
 }
 
 Header > .header--title {
-    color: #ff2a2a;
+    color: $pulse-title;
     text-style: bold;
     text-align: left;
     padding-left: 1;
 }
 
 Header > .header--subtitle {
-    color: #ff8080;
-    background: #000000;
+    color: $pulse-subtitle;
+    background: $pulse-background;
 }
 
 /* no glyph icon in the header - this is a terminal, not a desktop */
@@ -40,7 +44,7 @@ HeaderIcon {
 #library-pane {
     width: 32%;
     height: 100%;
-    background: #0a0a0a;
+    background: $pulse-surface;
     display: block;
     overflow-x: hidden;
 }
@@ -51,15 +55,15 @@ HeaderIcon {
 
 #lib-search {
     height: 3;
-    background: #0d0d0d;
+    background: $pulse-panel;
     border: none;
     padding: 0 1;
-    color: #ffb0b0;
+    color: $pulse-label;
 }
 
 #lib-search:focus {
-    background: #1c0a0a;
-    color: #ffffff;
+    background: $pulse-highlight-bg;
+    color: $pulse-focus-text;
 }
 
 #lib-search.-hidden {
@@ -67,8 +71,8 @@ HeaderIcon {
 }
 
 #lib-title {
-    background: #0d0d0d;
-    color: #ff5555;
+    background: $pulse-panel;
+    color: $pulse-accent;
     text-style: bold;
     height: 3;
     content-align: center middle;
@@ -76,44 +80,44 @@ HeaderIcon {
 }
 
 #lib-tree {
-    background: #0a0a0a;
-    color: #ff8a8a;
+    background: $pulse-surface;
+    color: $pulse-muted;
     height: 1fr;
     padding: 0 1;
     scrollbar-size: 1 0;
 }
 
 #lib-tree > .tree--guides {
-    color: #5a2a2a;
+    color: $pulse-dim;
 }
 
 #lib-tree > .tree--highlight {
-    background: #1c0a0a;
-    color: #ffffff;
+    background: $pulse-highlight-bg;
+    color: $pulse-focus-text;
 }
 
 #lib-tree > .tree--cursor {
-    background: #330d0d;
-    color: #ffffff;
+    background: $pulse-cursor-bg;
+    color: $pulse-focus-text;
 }
 
 #lib-tree > .tree--selected {
-    background: #471111;
-    color: #ffffff;
+    background: $pulse-selected-bg;
+    color: $pulse-focus-text;
 }
 
 #lib-tree > .tree--expander {
-    color: #ff4444;
+    color: $pulse-expander;
 }
 
 #lib-tree > .tree--label {
-    color: #ffb0b0;
+    color: $pulse-label;
 }
 
 #now-pane {
     width: 68%;
     height: 100%;
-    background: #000000;
+    background: $pulse-background;
     overflow-x: hidden;
 }
 
@@ -123,20 +127,20 @@ HeaderIcon {
 }
 
 #now-title {
-    color: #ff6b6b;
+    color: $pulse-text;
     text-style: bold;
     height: 3;
     content-align: center middle;
     text-align: center;
-    background: #000000;
+    background: $pulse-background;
     width: 100%;
 }
 
 Visualizer {
     height: 1fr;
     width: 100%;
-    color: #ff3333;
-    background: #000000;
+    color: $pulse-primary;
+    background: $pulse-background;
     margin-top: 1;
     padding: 0 1;
 }
@@ -156,7 +160,7 @@ Visualizer.-hidden {
 #header-row {
     height: 3;
     width: 100%;
-    background: #0a0a0a;
+    background: $pulse-surface;
     padding: 0 1;
     align-vertical: middle;
 }
@@ -167,13 +171,13 @@ Visualizer.-hidden {
 }
 
 #bar-title {
-    color: #ff8080;
+    color: $pulse-subtitle;
     text-style: bold;
     width: 1fr;
 }
 
 #bar-time {
-    color: #ff9b9b;
+    color: $pulse-time;
     width: auto;
     content-align: right middle;
     margin-left: 1;
@@ -184,14 +188,14 @@ Visualizer.-hidden {
 #bindbar {
     height: 1;
     width: 100%;
-    background: #000000;
+    background: $pulse-background;
     layout: horizontal;
     padding: 0 1;
     align-vertical: middle;
 }
 
 #bindbar .bind-item {
-    color: #ff8a8a;
+    color: $pulse-muted;
     height: 1;
     width: auto;
     margin-right: 1;
@@ -203,7 +207,7 @@ Visualizer.-hidden {
 #progress-row {
     height: 3;
     width: 100%;
-    background: #0a0a0a;
+    background: $pulse-surface;
     padding: 0 1;
     align-vertical: middle;
 }
@@ -214,21 +218,21 @@ Visualizer.-hidden {
 }
 
 ProgressBar {
-    background: #1a1a1a;
-    color: #ff1a1a;
+    background: $pulse-track;
+    color: $pulse-progress;
 }
 
 ProgressBar > .progress--bar {
-    background: #ff3333;
-    color: #ffdddd;
+    background: $pulse-primary;
+    color: $pulse-progress-text;
 }
 
 ProgressBar > .progress--remaining {
-    background: #1a1a1a;
+    background: $pulse-track;
 }
 
 #vol {
-    color: #ff9b9b;
+    color: $pulse-time;
     height: 1;
     content-align: right middle;
     background: transparent;
@@ -239,16 +243,16 @@ ProgressBar > .progress--remaining {
 /* ---- scrollbar ---- */
 
 Scrollbar {
-    background: #1a1a1a;
-    color: #c21818;
+    background: $pulse-track;
+    color: $pulse-scrollbar;
 }
 
 Scrollbar > .scrollbar--bar {
-    background: #3a0a0a;
-    color: #ff4444;
+    background: $pulse-scrollbar-track;
+    color: $pulse-expander;
 }
 
 Scrollbar > .scrollbar--grabber {
-    background: #c21818;
-    color: #ff2222;
+    background: $pulse-scrollbar;
+    color: $pulse-error;
 }
