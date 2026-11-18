@@ -16,6 +16,6 @@ lib.cleanSourceWith {
     && name != "venv"
     && name != "result"
     && name != "__pycache__"
-    # nothing outside of main.py + pulse.tcss is needed to run PULSE
+    # nothing outside of pulse-music/ is needed to run PULSE
     && !(type == "directory" && (name == "nix" || name == "assets"));
 }

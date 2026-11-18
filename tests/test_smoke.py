@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pulse-music"))
 
 from textual.containers import Vertical  # noqa: E402
 from textual.widgets import Input, Tree  # noqa: E402

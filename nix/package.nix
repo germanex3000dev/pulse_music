@@ -32,13 +32,13 @@ stdenv.mkDerivation {
   dontConfigure = true;
   dontBuild = true;
 
-  # Textual resolves CSS_PATH relative to main.py, so the two files just have
+  # Textual resolves CSS_PATH relative to main.py, so the sources just have
   # to end up in the same directory - no need to wrap --cd.
   installPhase = ''
     runHook preInstall
 
-    install -Dm644 main.py "$out/libexec/pulse/main.py"
-    install -Dm644 pulse.tcss "$out/libexec/pulse/pulse.tcss"
+    install -Dm644 pulse-music/main.py "$out/libexec/pulse/main.py"
+    install -Dm644 pulse-music/pulse.tcss "$out/libexec/pulse/pulse.tcss"
 
     makeWrapper ${pythonWithDeps}/bin/python3 "$out/bin/pulse" \
       --add-flags "$out/libexec/pulse/main.py" \

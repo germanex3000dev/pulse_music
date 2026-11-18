@@ -95,7 +95,7 @@ For hacking on it:
 
 ``` bash
 nix develop          # python3 + mpv + cava, no venv needed
-python main.py
+python pulse-music/main.py
 nix flake check      # tests: PULSE starts, finds libmpv, toggles cleanly
 nix fmt              # format the Nix files
 ```
@@ -174,7 +174,7 @@ The wrapper handles that:
 -   `programs.pulse.musicDir` becomes `$PULSE_MUSIC_DIR`
 
 PULSE also does its own best-effort discovery of libmpv at startup, so
-`python main.py` works inside `nix develop` and in a plain virtualenv too.
+`python pulse-music/main.py` works inside `nix develop` and in a plain virtualenv too.
 
 ### Arch Linux
 
@@ -206,7 +206,7 @@ pip install textual rich python-mpv
 Make sure the system dependencies are installed, then start PULSE:
 
 ``` bash
-python main.py
+python pulse-music/main.py
 ```
 
 By default, PULSE scans:
@@ -218,7 +218,7 @@ By default, PULSE scans:
 You can also specify another directory:
 
 ``` bash
-python main.py ~/Music/Soundtracks
+python pulse-music/main.py ~/Music/Soundtracks
 ```
 
 ------------------------------------------------------------------------
@@ -362,8 +362,9 @@ A minimal installation looks like:
 
 ``` text
 pulse/
-├── main.py
-├── pulse.tcss
+├── pulse-music/
+│   ├── main.py
+│   └── pulse.tcss
 ├── flake.nix
 ├── nix/
 │   ├── package.nix        # the derivation
@@ -393,7 +394,7 @@ DEFAULT_DIR = Path.home() / "Music"
 You can override it from the command line:
 
 ``` bash
-python main.py /path/to/music
+python pulse-music/main.py /path/to/music
 ```
 
 The visualizer is configured directly by PULSE when it starts CAVA, so
