@@ -488,6 +488,10 @@ class BindBar(Widget):
 
 class PulsePlayer(App):
     CSS_PATH = "pulse.tcss"
+    # Textual auto-focuses the first focusable widget (the library Tree), whose
+    # space/up/down bindings shadow play/pause and volume. PULSE's keys are
+    # app-level: nothing should hold focus at startup.
+    AUTO_FOCUS = None
 
     BINDINGS = [
         # no priority flags: while the search field has focus every key must
