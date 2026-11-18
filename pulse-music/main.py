@@ -423,11 +423,15 @@ class Visualizer(Static):
         gradient = self.app.config.gradient
         n_grad = len(gradient)
         for r in range(height):
+            from_bottom = height - 1 - r
+            # the gradient depends only on the row, so the whole line shares
+            # one style: appending it as a single span instead of one span per
+            # cell keeps the compositor cheap enough to hold 30fps
+            frac_up = from_bottom / max(1, height - 1)
+            idx = min(n_grad - 1, int(frac_up * n_grad))
+            row = " " * left
             col_index = 0
-            for _c in range(left):
-                text.append(" ")
-            for i, v in enumerate(bars):
-                from_bottom = height - 1 - r
+            for v in bars:
                 target = v * height
                 full_rows = int(target)
                 frac = (target - full_rows) * 8
@@ -440,16 +444,12 @@ class Visualizer(Static):
                 else:
                     ch = " "
 
-                if ch != " ":
-                    frac_up = from_bottom / max(1, height - 1)
-                    idx = min(n_grad - 1, int(frac_up * n_grad))
-                    text.append(ch, style=gradient[idx])
-                else:
-                    text.append(" ")
+                row += ch
                 col_index += 1
                 if col_index < used_cols:
-                    text.append(" ")
+                    row += " "
                     col_index += 1
+            text.append(row, style=gradient[idx])
             if r < height - 1:
                 text.append("\n")
         return text
