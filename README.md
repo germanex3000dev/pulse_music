@@ -10,7 +10,9 @@ fast, focused, and look ridiculously good in a terminal.
 
 ### LATEST UPDATE:
 
-- Shuffle toggle with `X`
+- Change visualizers with `V`
+- Bug fixes
+- TOML configuration for custom color themes
 
 ![PULSE library and visualizer](assets/pulse-library.png)
 
