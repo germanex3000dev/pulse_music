@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pulse-music"))
 
 from textual.containers import Vertical  # noqa: E402
 from textual.widgets import Input, Tree  # noqa: E402
@@ -218,17 +218,18 @@ class VisualizerFitTest(PulseTestCase):
         self.run_app(body, music=tracks)
 
     def test_spectrum_survives_hiding_the_visualizer(self):
-        # V collapses the box to zero; S afterwards must not resurrect a
-        # stale width
+        # V cycles bars -> oscilloscope -> circular -> text (collapsed) and
+        # wraps to bars; S afterwards must not resurrect a stale width
         async def body(app, pilot):
             viz = self.freeze_spectrum(app)
-            await pilot.press("v")
+            for _ in range(3):  # bars -> scope -> circle -> text (hidden)
+                await pilot.press("v")
             await pilot.press("s")
             await pilot.press("s")
             await self.settle(pilot, viz)
             self.assertEqual(viz.size.width, 0)
 
-            await pilot.press("v")
+            await pilot.press("v")  # text -> bars again
             await self.settle(pilot, viz)
             self.assertGreater(viz.size.width, 0, "viz did not come back")
 

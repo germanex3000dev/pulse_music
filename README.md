@@ -1,6 +1,6 @@
-# PULSE
+# PULSEPLAYER
 
-### A terminal-native music player with a heartbeat.
+### A customizable terminal-native local music player with a heartbeat.
 
 **PULSE** is a lightweight, keyboard-driven TUI music player built with
 **Python**, **Textual**, **mpv**, and **CAVA**.
@@ -10,11 +10,15 @@ fast, focused, and look ridiculously good in a terminal.
 
 ### LATEST UPDATE:
 
-- Shuffle toggle with `X`
+- Change visualizers with `V`
+- Bug fixes
+- TOML configuration for custom color themes
 
 ![PULSE library and visualizer](assets/pulse-library.png)
 
-![PULSE alternate library view](assets/pulse-visualizer.png)
+![PULSE alternate visualizer 2](assets/pulse-visualizer-type-2.png)
+
+![PULSE alternate visualizer 3](assets/pulse-visualizer-type-3.png)
 
 ------------------------------------------------------------------------
 
@@ -25,12 +29,13 @@ fast, focused, and look ridiculously good in a terminal.
 -   Tree-based library browser
 -   Incremental library search with `/`
 -   Track and album views
--   Real-time **CAVA** spectrum visualizer (toggle with `V`), degrades
-    gracefully when `cava` is not installed
+-   Four visualizer modes cycled with `V` --- spectrum bars, a true
+    **oscilloscope** waveform, a circular ring, or plain text --- degrading
+    gracefully when `cava` or `parec` is not installed
 -   Native **Nix** support: `nix run`, a NixOS/Home Manager module, and a dev
     shell
 -   Starts paused, so PULSE never interrupts you on launch
--   Custom red-on-black terminal theme
+-   Custom red-on-black terminal theme, configurable via `config.toml`
 -   Fully keyboard-driven controls
 -   Playlist repeat
 -   Mute support
@@ -53,6 +58,7 @@ PULSE is currently aimed at Linux systems with:
 -   Python 3.10+
 -   `mpv` (including `libmpv`)
 -   `cava` (optional, only for the visualizer)
+-   `parec` + `pactl` (optional, only for the oscilloscope mode)
 -   PulseAudio / PipeWire audio output
 -   Python packages:
     -   `textual`
@@ -95,7 +101,7 @@ For hacking on it:
 
 ``` bash
 nix develop          # python3 + mpv + cava, no venv needed
-python main.py
+python pulse-music/main.py
 nix flake check      # tests: PULSE starts, finds libmpv, toggles cleanly
 nix fmt              # format the Nix files
 ```
@@ -174,7 +180,7 @@ The wrapper handles that:
 -   `programs.pulse.musicDir` becomes `$PULSE_MUSIC_DIR`
 
 PULSE also does its own best-effort discovery of libmpv at startup, so
-`python main.py` works inside `nix develop` and in a plain virtualenv too.
+`python pulse-music/main.py` works inside `nix develop` and in a plain virtualenv too.
 
 ### Arch Linux
 
@@ -206,7 +212,7 @@ pip install textual rich python-mpv
 Make sure the system dependencies are installed, then start PULSE:
 
 ``` bash
-python main.py
+python pulse-music/main.py
 ```
 
 By default, PULSE scans:
@@ -218,7 +224,7 @@ By default, PULSE scans:
 You can also specify another directory:
 
 ``` bash
-python main.py ~/Music/Soundtracks
+python pulse-music/main.py ~/Music/Soundtracks
 ```
 
 ------------------------------------------------------------------------
@@ -233,6 +239,7 @@ configure the wrapper:
 | `PULSE_MUSIC_DIR` | Default music directory, used when no directory is passed |
 | `PULSE_AO` | Force an mpv audio output (`pipewire`, `pulse`, `alsa`, `null`) |
 | `PULSE_LIBMPV` | Path to `libmpv.so.2`, for setups where discovery fails |
+| `PULSE_CONFIG` | Path to the color config file (default: `~/.config/pulseplayer/config.toml`) |
 | `XDG_RUNTIME_DIR` | Filled in from `/run/user/$UID` when unset, so PipeWire and PulseAudio sockets are found |
 
 Without `PULSE_AO`, PULSE asks mpv which outputs it supports and prefers
@@ -251,7 +258,7 @@ PipeWire, then PulseAudio, then ALSA.
   `↑ / ↓`   Volume −/+ 5%
   `S`       Toggle library
   `/`       Search the library
-  `V`       Show / hide visualizer
+  `V`       Cycle visualizer (bars/scope/circle/text)
   `R`       Toggle playlist repeat
   `X`       Toggle shuffle
   `M`       Mute / Unmute
@@ -261,9 +268,21 @@ The controls are also displayed inside the UI, so you don't have to
 memorize anything.
 
 `S` and `V` can be combined freely --- hiding the library widens the
-now-playing area to the full row, and hiding the visualizer gives the track
+now-playing area to the full row, and cycling `V` to *text* gives the track
 title the whole pane. Toggling either one repeatedly always lands back on the
 same layout.
+
+`V` steps through four visualizer modes:
+
+-   **bars** --- the classic spectrum (default)
+-   **oscilloscope** --- a true waveform as a thin, hard-swinging beam
+    tapped from the default sink's monitor via `parec` (needs `parec` +
+    `pactl`; shows a notice if they're missing)
+-   **circular** --- cava-style radial bars growing out of a ring
+-   **text** --- no graphics, the track title owns the pane
+
+The mode starts wherever `config.toml` says (see Configuration); cycling
+with `V` lasts for the session only.
 
 PULSE always opens with the library loaded but **paused** --- the first
 track is selected and ready, but nothing plays until you press `Space`.
@@ -362,8 +381,10 @@ A minimal installation looks like:
 
 ``` text
 pulse/
-├── main.py
-├── pulse.tcss
+├── pulse-music/
+│   ├── main.py
+│   ├── config.py
+│   └── pulse.tcss
 ├── flake.nix
 ├── nix/
 │   ├── package.nix        # the derivation
@@ -393,7 +414,7 @@ DEFAULT_DIR = Path.home() / "Music"
 You can override it from the command line:
 
 ``` bash
-python main.py /path/to/music
+python pulse-music/main.py /path/to/music
 ```
 
 The visualizer is configured directly by PULSE when it starts CAVA, so
@@ -401,8 +422,83 @@ there is no separate CAVA configuration file to maintain. If `cava` is not
 installed, PULSE shows a short notice instead of a blank spectrum and the
 rest of the player works normally.
 
-You're also free to modify `pulse.tcss` to add your own colors. I will 
-implement more colors and maybe even matugen/wallust support in later Versions.
+### Colors
+
+Every color PULSE uses comes from `~/.config/pulseplayer/config.toml`
+(or `$XDG_CONFIG_HOME/pulse/config.toml`; the `PULSE_CONFIG` environment
+variable overrides the location). All keys are optional — anything omitted
+falls back to the red-on-black defaults:
+
+``` toml
+# ~/.config/pulseplayer/config.toml
+
+[colors]
+# base - these also feed the Textual theme
+background     = "#000000"   # Screen, Header, panes
+surface        = "#0a0a0a"   # library pane, tree, header/progress rows
+panel          = "#0d0d0d"   # search bar, library title
+foreground     = "#ffcfcf"   # theme foreground
+primary        = "#ff3333"   # visualizer, progress bar
+secondary      = "#b31212"   # theme secondary
+accent         = "#ff5555"   # library title, theme warning/success
+error          = "#ff2222"   # scrollbar grabber text
+# text
+text           = "#ff6b6b"   # screen text, track title
+title          = "#ff2a2a"   # header
+subtitle       = "#ff8080"   # header subtitle, bar title
+label          = "#ffb0b0"   # search text, tree labels
+muted          = "#ff8a8a"   # tree text, keybind bar
+time           = "#ff9b9b"   # time + volume readouts
+dim            = "#5a2a2a"   # tree guides
+notice         = "#7a2020"   # "CAVA not found" notice
+focus_text     = "#ffffff"   # text on highlighted items
+progress       = "#ff1a1a"   # progress bar label
+progress_text  = "#ffdddd"   # progress bar fill text
+# state backgrounds
+highlight_bg   = "#1c0a0a"   # focused search + tree highlight
+cursor_bg      = "#330d0d"   # tree cursor
+selected_bg    = "#471111"   # tree selected item
+track          = "#1a1a1a"   # progress + scrollbar tracks
+scrollbar      = "#c21818"   # scrollbar color
+scrollbar_track= "#3a0a0a"   # scrollbar bar background
+expander       = "#ff4444"   # tree expander + scrollbar bar text
+
+[gradient]                    # visualizer spectrum, bottom -> top
+colors = ["#3a0a0a", "#4a0d0d", "#5c1010", "#701515",
+          "#8a1818", "#a02020", "#c22828", "#e03030",
+          "#ff3333", "#ff5a5a", "#ff8080", "#ffa4a4"]
+```
+
+Colors accept anything Textual understands: hex (`#RRGGBB`, `#RGB`),
+`rgb(r, g, b)`, or named colors (`red`). The gradient needs at least two
+stops. Invalid values don't crash PULSE — a warning is printed to stderr
+and that key falls back to its default. No config file at all is fine too:
+the app starts silently with the default theme.
+
+The `pulse.tcss` file itself only references `$pulse-*` variables now, so
+feel free to restyle the layout there without touching colors.
+
+### Visualizer
+
+Which visualizer PULSE starts with is also configurable:
+
+``` toml
+[visualizer]
+mode = "bars"   # bars | oscilloscope | circular | text
+```
+
+`mode` picks the startup mode; pressing `V` cycles through all four for the
+rest of the session. An invalid mode prints a warning to stderr and falls
+back to `bars`.
+
+The **oscilloscope** needs `parec` (plus `pactl` to find the
+default sink's monitor). If either is missing, PULSE shows a notice in the
+pane instead — the other modes are unaffected. The waveform is captured
+from the output monitor only, never from a microphone (`parec` is used
+specifically because it attaches to the exact device and fails safe,
+while `pw-record` silently falls back to the default source on some
+setups). When the sink goes idle the trace flatlines instead of freezing
+on the last waveform.
 
 ------------------------------------------------------------------------
 
@@ -455,9 +551,9 @@ Possible future additions:
 -   [ ] Playlists
 -   [ ] Queue management
 -   [x] Shuffle
--   [ ] Config file
+-   [x] Config file
 -   [ ] Persistent volume / playback state
--   [ ] More visualizer modes
+-   [x] More visualizer modes
 -   [x] Installable CLI command
 -   [x] Nix packaging
 -   [ ] Settings menu

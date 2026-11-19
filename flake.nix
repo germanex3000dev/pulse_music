@@ -47,7 +47,7 @@
         }
       );
 
-      # `nix develop`, then `python main.py`
+      # `nix develop`, then `python pulse-music/main.py`
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           name = "pulse-dev";
