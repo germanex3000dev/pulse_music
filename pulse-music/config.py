@@ -63,6 +63,10 @@ DEFAULT_GRADIENT: list[str] = [
     "#ffa4a4",
 ]
 
+#: V cycles through these in order; "text" is the no-graphics state
+VISUALIZER_MODES: tuple[str, ...] = ("bars", "oscilloscope", "circular", "text")
+DEFAULT_VISUALIZER_MODE = "bars"
+
 # The config key is a TCSS variable name in pulse.tcss
 # The prefix "pulse-" is needed here, since Textual's built-in theme already claims
 # bare names like "$background", "$text", and "$accent", and these theme values
@@ -83,6 +87,7 @@ class Config:
 
     colors: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_COLORS))
     gradient: list[str] = field(default_factory=lambda: list(DEFAULT_GRADIENT))
+    visualizer_mode: str = DEFAULT_VISUALIZER_MODE
     warnings: tuple[str, ...] = ()
 
     def css_variables(self) -> dict[str, str]:
@@ -165,6 +170,18 @@ def _validate_gradient(value: object, warnings: list[str]) -> list[str] | None:
     return validated
 
 
+def _validate_visualizer_mode(value: object, warnings: list[str]) -> str | None:
+    """Return a valid visualizer mode (or None), with a warning if it isn't one."""
+    if not isinstance(value, str) or value not in VISUALIZER_MODES:
+        warnings.append(
+            f"visualizer.mode = {value!r} isn't a valid mode "
+            f"(valid: {', '.join(VISUALIZER_MODES)}); "
+            f"using default {DEFAULT_VISUALIZER_MODE!r}."
+        )
+        return None
+    return value
+
+
 def load_config(path: Path | str | None = None) -> Config:
     """If you know how to read python, you know that this loads the TOML configuration.
     (and it also falls back to default if a problem occurs, somehow)
@@ -190,8 +207,9 @@ def load_config(path: Path | str | None = None) -> Config:
 
     colors = dict(DEFAULT_COLORS)
     gradient = list(DEFAULT_GRADIENT)
+    visualizer_mode = DEFAULT_VISUALIZER_MODE
 
-    known_sections = {"colors", "gradient"}
+    known_sections = {"colors", "gradient", "visualizer"}
     for section in data:
         if section not in known_sections:
             warnings.append(f"unknown section [{section}], ignoring.")
@@ -225,8 +243,22 @@ def load_config(path: Path | str | None = None) -> Config:
         if validated_gradient is not None:
             gradient = validated_gradient
 
+    raw_visualizer = data.get("visualizer", {})
+    if not isinstance(raw_visualizer, dict):
+        warnings.append("[visualizer] must be a table; using defaults instead.")
+        raw_visualizer = {}
+
+    for key, value in raw_visualizer.items():
+        if key != "mode":
+            warnings.append(f"unknown option visualizer.{key} ignoring.")
+            continue
+        validated_mode = _validate_visualizer_mode(value, warnings)
+        if validated_mode is not None:
+            visualizer_mode = validated_mode
+
     return Config(
         colors=colors,
         gradient=gradient,
+        visualizer_mode=visualizer_mode,
         warnings=tuple(warnings),
     )

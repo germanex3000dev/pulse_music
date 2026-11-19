@@ -3,6 +3,7 @@ import ctypes
 import ctypes.util
 import glob
 import locale
+import math
 import os
 import shutil
 import struct
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from collections import deque
 from pathlib import Path
 
 locale.setlocale(locale.LC_NUMERIC, "C")
@@ -137,7 +139,12 @@ from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Header, Input, ProgressBar, Static, Tree
 
-from config import Config, load_config
+from config import (
+    Config,
+    DEFAULT_VISUALIZER_MODE,
+    VISUALIZER_MODES,
+    load_config,
+)
 
 AUDIO_EXTS = {
     ".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac",
@@ -243,12 +250,18 @@ def fmt_volume(volume: float | None) -> str:
 
 
 class Visualizer(Static):
-    """An audio-reactive spectrum visualizer that reads raw bar data from cava."""
+    """Audio-reactive visualizer: spectrum bars, oscilloscope or circle."""
 
     DEFAULT_CSS = "Visualizer { height: 1fr; }"
 
-    def __init__(self, *args, **kwargs):
+    #: PCM window the oscilloscope shows across its width, in seconds
+    WAVE_WINDOW = 0.1
+    #: capture rate of the oscilloscope's PCM tap
+    WAVE_RATE = 48000
+
+    def __init__(self, *args, mode: str = DEFAULT_VISUALIZER_MODE, **kwargs):
         super().__init__(*args, **kwargs)
+        self.mode = mode
         self._nbars = CAVA_BARS
         self._latest: list[float] = [0.0] * self._nbars
         self._smooth: list[float] = [0.0] * self._nbars
@@ -258,29 +271,60 @@ class Visualizer(Static):
         self._timer: Timer | None = None
         self._cava_missing = False
         self._warned_about_cava = False
+        # oscilloscope: raw s16 mono samples piped in by pw-record
+        self._wave_proc: subprocess.Popen | None = None
+        self._wave_thread: threading.Thread | None = None
+        # the ring holds exactly one render window (0.1s) so every frame can
+        # consume it whole; silence pads the left side until it fills
+        self._samples: deque[int] = deque(
+            maxlen=max(64, int(self.WAVE_RATE * self.WAVE_WINDOW))
+        )
+        self._wave_missing = False
+        self._warned_about_wave = False
 
     def on_mount(self) -> None:
         self._timer = self.set_interval(1 / 30, self._tick)
-        self.start()
+        self.set_mode(self.mode)
 
-    # ----- lifecycle (the app can stop/start the visualizer with a keybind) -----
+    # ----- lifecycle (V cycles the modes; sources follow the mode) -----
 
-    def start(self) -> None:
-        """Start CAVA and resume refreshing the spectrum."""
-        if self._proc is not None and self._proc.poll() is not None:
-            # CAVA died on its own, clean up before spawning a new one
+    def set_mode(self, mode: str) -> None:
+        """Switch modes: visibility, data sources and timer all follow."""
+        self.mode = mode
+        self.set_class(mode == "text", "-hidden")
+        if mode == "text":
+            # no graphics: drop both sources and stop burning CPU
+            self.stop()
+            self.refresh()
+            return
+        if mode == "oscilloscope":
+            # the spectrum isn't needed here, don't run CAVA alongside
             self._stop_cava()
-        if self._proc is None:
-            self._start_cava()
-        # nothing to render without CAVA, so don't burn CPU on an idle timer
-        if self._timer is not None and not self._cava_missing:
-            self._timer.resume()
+            if self._wave_proc is None or self._wave_proc.poll() is not None:
+                self._stop_wave()
+                self._start_wave()
+            missing = self._wave_missing
+        else:
+            self._stop_wave()
+            if self._proc is None or self._proc.poll() is not None:
+                # CAVA died on its own or never started, (re)spawn it
+                self._stop_cava()
+                self._start_cava()
+            missing = self._cava_missing
+        # nothing to render without data, so don't burn CPU on an idle timer
+        if self._timer is not None:
+            if missing:
+                self._timer.pause()
+            else:
+                self._timer.resume()
+        self.refresh()
 
     def stop(self) -> None:
-        """Stop CAVA and stop refreshing the spectrum (frees CPU while hidden)."""
+        """Stop every source and the refresh timer (hidden / unmount)."""
         if self._timer is not None:
             self._timer.pause()
         self._stop_cava()
+        self._stop_wave()
         self._latest = [0.0] * self._nbars
         self._smooth = [0.0] * self._nbars
 
@@ -358,6 +402,109 @@ class Visualizer(Static):
                 pass
             self._cava_config = None
 
+    # ----- oscilloscope: raw PCM from the default sink's monitor -----
+
+    def _resolve_monitor(self) -> str | None:
+        """Name of the default sink's monitor, or None if it can't be found.
+
+        Only ever resolves to a *.monitor source: falling back to the default
+        *source* would silently capture the microphone.
+        """
+        if shutil.which("pactl") is None:
+            return None
+        try:
+            result = subprocess.run(
+                ["pactl", "get-default-sink"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        sink = result.stdout.strip()
+        if result.returncode != 0 or not sink:
+            return None
+        return f"{sink}.monitor"
+
+    def _start_wave(self) -> None:
+        if shutil.which("pw-record") is None:
+            self._wave_missing = True
+            if not self._warned_about_wave:
+                self._warned_about_wave = True
+                self.notify(
+                    "pw-record not found: oscilloscope disabled",
+                    title="pulse",
+                    severity="warning",
+                )
+            return
+        monitor = self._resolve_monitor()
+        if monitor is None:
+            self._wave_missing = True
+            if not self._warned_about_wave:
+                self._warned_about_wave = True
+                self.notify(
+                    "no default sink monitor: oscilloscope disabled",
+                    title="pulse",
+                    severity="warning",
+                )
+            return
+        try:
+            proc = subprocess.Popen(
+                [
+                    "pw-record",
+                    "--target", monitor,
+                    "--raw",
+                    "--rate", str(self.WAVE_RATE),
+                    "--channels", "1",
+                    "--format", "s16",
+                    "-",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            self._wave_missing = True
+            return
+        self._wave_missing = False
+        self._wave_proc = proc
+        self._wave_thread = threading.Thread(
+            target=self._wave_read_loop, args=(proc,), daemon=True
+        )
+        self._wave_thread.start()
+
+    def _stop_wave(self) -> None:
+        # same contract as _stop_cava: terminate, don't join
+        if self._wave_proc is not None:
+            try:
+                self._wave_proc.terminate()
+            except Exception:
+                pass
+        self._wave_proc = None
+        self._wave_thread = None
+        self._samples.clear()
+
+    def _wave_read_loop(self, proc: subprocess.Popen) -> None:
+        if proc.stdout is None:
+            return
+        stream = proc.stdout
+        raw = b""
+        while True:
+            chunk = stream.read(8192)
+            if not chunk:
+                break
+            if proc is not self._wave_proc:
+                # a newer capture took over, this data is stale
+                return
+            raw += chunk
+            # keep only whole s16 samples, carry the odd byte over
+            usable = len(raw) - (len(raw) % 2)
+            if usable:
+                self._samples.extend(
+                    struct.unpack(f"<{usable // 2}h", raw[:usable])
+                )
+                raw = raw[usable:]
+
     def _read_loop(self, proc: subprocess.Popen) -> None:
         if proc.stdout is None:
             return
@@ -394,12 +541,24 @@ class Visualizer(Static):
         self.refresh()
 
     def render(self) -> Text:
+        if self.mode == "text":
+            return Text()  # hidden pane, never draws graphics
+        if self.mode == "oscilloscope":
+            if self._wave_missing:
+                return self._notice("pw-record not found - oscilloscope disabled")
+            return self._render_oscilloscope()
+        # bars and circular both need the spectrum
         if self._cava_missing:
-            notice = self.app.config.colors["notice"]
-            return Text(
-                "  CAVA not found - visualizer disabled  ", style=f"italic {notice}"
-            )
+            return self._notice("CAVA not found - visualizer disabled")
+        if self.mode == "circular":
+            return self._render_circular()
+        return self._render_bars()
 
+    def _notice(self, message: str) -> Text:
+        notice = self.app.config.colors["notice"]
+        return Text(f"  {message}  ", style=f"italic {notice}")
+
+    def _render_bars(self) -> Text:
         width = max(1, self.size.width)
         height = max(1, self.size.height)
 
@@ -450,6 +609,138 @@ class Visualizer(Static):
                     row += " "
                     col_index += 1
             text.append(row, style=gradient[idx])
+            if r < height - 1:
+                text.append("\n")
+        return text
+
+    def _render_oscilloscope(self) -> Text:
+        width = max(1, self.size.width)
+        height = max(1, self.size.height)
+        gradient = self.app.config.gradient
+        n_grad = len(gradient)
+
+        window = max(width, int(self.WAVE_RATE * self.WAVE_WINDOW))
+        # the ring holds exactly one window; pad with silence until it fills
+        samples = list(self._samples)
+        if len(samples) < window:
+            samples = [0] * (window - len(samples)) + samples
+
+        # gentle gain so quiet music still moves (mirrors the bars boost)
+        peak = max((abs(s) for s in samples), default=0)
+        gain = 1.0
+        if 0 < peak < 0.3 * 32768:
+            gain = 0.3 * 32768 / peak
+
+        center = (height - 1) / 2
+        half = max(1.0, center)
+
+        # min..max envelope of every column's sample slice
+        rows = [[" "] * width for _ in range(height)]
+        for x in range(width):
+            start = x * window // width
+            end = (x + 1) * window // width
+            chunk = samples[start:end]
+            if not chunk:
+                continue
+            lo = min(chunk) * gain
+            hi = max(chunk) * gain
+            # positive samples go up; clamp into the pane
+            top = max(0, int(math.floor(center - (hi / 32768.0) * half)))
+            bottom = min(height - 1, int(math.ceil(center - (lo / 32768.0) * half)))
+            for r in range(top, bottom + 1):
+                rows[r][x] = "█"
+
+        # row-based color: one span per row, same budget as bars
+        text = Text()
+        for r in range(height):
+            frac_up = (height - 1 - r) / max(1, height - 1)
+            idx = min(n_grad - 1, int(frac_up * n_grad))
+            text.append("".join(rows[r]), style=gradient[idx])
+            if r < height - 1:
+                text.append("\n")
+        return text
+
+    def _render_circular(self) -> Text:
+        width = max(1, self.size.width)
+        height = max(1, self.size.height)
+        gradient = self.app.config.gradient
+        n_grad = len(gradient)
+
+        cx = (width - 1) / 2
+        cy = (height - 1) / 2
+        # terminal cells are ~2x taller than wide: halve the y radius
+        max_r = min(cx, cy * 2)
+        if max_r < 2:
+            return Text()
+        r_base = max_r * 0.5
+        r_gain = max_r * 0.45
+
+        bars = self._smooth
+        nbars = self._nbars
+        n_points = max(180, int(4 * math.pi * max_r))
+
+        # None = empty, else (char, gradient index) - amplitude colors, so
+        # runs of equal style get grouped into single spans per row
+        grid: list[list[tuple[str, int] | None]] = [
+            [None] * width for _ in range(height)
+        ]
+
+        def plot(x: float, y: float, style: int) -> None:
+            ix = int(round(x))
+            iy = int(round(y))
+            if 0 <= ix < width and 0 <= iy < height:
+                grid[iy][ix] = ("•", style)
+
+        prev: tuple[float, float] | None = None
+        for i in range(n_points + 1):  # +1 closes the ring
+            t = (i % n_points) / n_points
+            theta = t * 2 * math.pi - math.pi / 2  # start at the top
+            # interpolate the spectrum around the ring (wraps at the seam)
+            pos = t * nbars
+            i0 = int(pos) % nbars
+            frac = pos - int(pos)
+            amp = bars[i0] * (1 - frac) + bars[(i0 + 1) % nbars] * frac
+            r = r_base + amp * r_gain
+            x = cx + r * math.cos(theta)
+            y = cy + r * math.sin(theta) * 0.5
+            style = min(n_grad - 1, max(0, int(amp * n_grad)))
+            if prev is None:
+                plot(x, y, style)
+            else:
+                # connect the points so the ring has no gaps
+                x0, y0 = prev
+                steps = max(1, int(max(abs(x - x0), abs(y - y0)) * 2))
+                for s in range(1, steps + 1):
+                    f = s / steps
+                    plot(x0 + (x - x0) * f, y0 + (y - y0) * f, style)
+            prev = (x, y)
+
+        # group equal-style runs so amplitude colors don't explode the span count
+        text = Text()
+        for r, row in enumerate(grid):
+            col = 0
+            row_width = len(row)
+            while col < row_width:
+                cell = row[col]
+                if cell is None:
+                    end = col
+                    while end < row_width and row[end] is None:
+                        end += 1
+                    text.append(" " * (end - col))
+                    col = end
+                else:
+                    style = cell[1]
+                    chars: list[str] = []
+                    end = col
+                    while (
+                        end < row_width
+                        and row[end] is not None
+                        and row[end][1] == style
+                    ):
+                        chars.append(row[end][0])
+                        end += 1
+                    text.append("".join(chars), style=gradient[style])
+                    col = end
             if r < height - 1:
                 text.append("\n")
         return text
@@ -505,7 +796,7 @@ class PulsePlayer(App):
         Binding("down", "vol_down", "Vol-"),
         Binding("s", "toggle_library", "Library"),
         Binding("/", "search", "Search"),
-        Binding("v", "toggle_visualizer", "Viz"),
+        Binding("v", "cycle_visualizer", "Viz"),
         Binding("r", "repeat", "Repeat"),
         Binding("x", "shuffle", "Shuffle"),
         Binding("m", "mute", "Mute"),
@@ -558,8 +849,18 @@ class PulsePlayer(App):
             ),
             Vertical(
                 Static("Nothing Playing", id="now-title"),
-                Visualizer("", id="viz"),
+                Visualizer(
+                    "",
+                    id="viz",
+                    # the mode arrives at compose time so startup state is
+                    # deterministic regardless of mount order
+                    mode=self.config.visualizer_mode,
+                    classes=(
+                        "-hidden" if self.config.visualizer_mode == "text" else ""
+                    ),
+                ),
                 id="now-pane",
+                classes="no-viz" if self.config.visualizer_mode == "text" else "",
             ),
             id="main-row",
         )
@@ -922,17 +1223,19 @@ class PulsePlayer(App):
         # the right edge of the spectrum
         now.set_class(hidden, "no-lib")
 
-    def action_toggle_visualizer(self) -> None:
+    def action_cycle_visualizer(self) -> None:
+        """V steps through the modes: bars -> scope -> circle -> text -> bars."""
         viz = self.query_one("#viz", Visualizer)
-        hidden = not viz.has_class("-hidden")
-        viz.set_class(hidden, "-hidden")
-        # stop CAVA entirely while hidden so it doesn't burn CPU
-        if hidden:
-            viz.stop()
-        else:
-            viz.start()
+        current = (
+            VISUALIZER_MODES.index(viz.mode)
+            if viz.mode in VISUALIZER_MODES
+            else 0
+        )
+        next_mode = VISUALIZER_MODES[(current + 1) % len(VISUALIZER_MODES)]
+        viz.set_mode(next_mode)
         now = self.query_one("#now-pane", Vertical)
-        now.set_class(hidden, "no-viz")
+        # text-only hands the pane back to the track title
+        now.set_class(next_mode == "text", "no-viz")
 
     # ----- event handlers -----
 

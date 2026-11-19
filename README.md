@@ -25,8 +25,9 @@ fast, focused, and look ridiculously good in a terminal.
 -   Tree-based library browser
 -   Incremental library search with `/`
 -   Track and album views
--   Real-time **CAVA** spectrum visualizer (toggle with `V`), degrades
-    gracefully when `cava` is not installed
+-   Four visualizer modes cycled with `V` --- spectrum bars, a true
+    **oscilloscope** waveform, a circular ring, or plain text --- degrading
+    gracefully when `cava` or `pw-record` is not installed
 -   Native **Nix** support: `nix run`, a NixOS/Home Manager module, and a dev
     shell
 -   Starts paused, so PULSE never interrupts you on launch
@@ -53,6 +54,7 @@ PULSE is currently aimed at Linux systems with:
 -   Python 3.10+
 -   `mpv` (including `libmpv`)
 -   `cava` (optional, only for the visualizer)
+-   `pw-record` + `pactl` (optional, only for the oscilloscope mode)
 -   PulseAudio / PipeWire audio output
 -   Python packages:
     -   `textual`
@@ -252,7 +254,7 @@ PipeWire, then PulseAudio, then ALSA.
   `↑ / ↓`   Volume −/+ 5%
   `S`       Toggle library
   `/`       Search the library
-  `V`       Show / hide visualizer
+  `V`       Cycle visualizer (bars/scope/circle/text)
   `R`       Toggle playlist repeat
   `X`       Toggle shuffle
   `M`       Mute / Unmute
@@ -262,9 +264,21 @@ The controls are also displayed inside the UI, so you don't have to
 memorize anything.
 
 `S` and `V` can be combined freely --- hiding the library widens the
-now-playing area to the full row, and hiding the visualizer gives the track
+now-playing area to the full row, and cycling `V` to *text* gives the track
 title the whole pane. Toggling either one repeatedly always lands back on the
 same layout.
+
+`V` steps through four visualizer modes:
+
+-   **bars** --- the classic spectrum (default)
+-   **oscilloscope** --- a true waveform tapped from the default sink's
+    monitor via `pw-record` (needs PipeWire's `pw-record` + `pactl`;
+    shows a notice if they're missing)
+-   **circular** --- the spectrum arranged around a ring
+-   **text** --- no graphics, the track title owns the pane
+
+The mode starts wherever `config.toml` says (see Configuration); cycling
+with `V` lasts for the session only.
 
 PULSE always opens with the library loaded but **paused** --- the first
 track is selected and ready, but nothing plays until you press `Space`.
@@ -460,6 +474,24 @@ the app starts silently with the default theme.
 The `pulse.tcss` file itself only references `$pulse-*` variables now, so
 feel free to restyle the layout there without touching colors.
 
+### Visualizer
+
+Which visualizer PULSE starts with is also configurable:
+
+``` toml
+[visualizer]
+mode = "bars"   # bars | oscilloscope | circular | text
+```
+
+`mode` picks the startup mode; pressing `V` cycles through all four for the
+rest of the session. An invalid mode prints a warning to stderr and falls
+back to `bars`.
+
+The **oscilloscope** needs PipeWire's `pw-record` (plus `pactl` to find the
+default sink's monitor). If either is missing, PULSE shows a notice in the
+pane instead — the other modes are unaffected. The waveform is captured
+from the output monitor only, never from a microphone.
+
 ------------------------------------------------------------------------
 
 ##  Status
@@ -513,7 +545,7 @@ Possible future additions:
 -   [x] Shuffle
 -   [x] Config file
 -   [ ] Persistent volume / playback state
--   [ ] More visualizer modes
+-   [x] More visualizer modes
 -   [x] Installable CLI command
 -   [x] Nix packaging
 -   [ ] Settings menu
