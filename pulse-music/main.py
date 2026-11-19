@@ -467,6 +467,10 @@ class Visualizer(Static):
                     "--format=s16le",
                     f"--rate={self.WAVE_RATE}",
                     "--channels=1",
+                    # without this parec batches ~682ms of monitor audio
+                    # before flushing, which froze the trace at ~1fps;
+                    # 20ms arrivals (47/s) comfortably feed the 30fps timer
+                    "--latency-msec=20",
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
@@ -499,7 +503,10 @@ class Visualizer(Static):
         stream = proc.stdout
         raw = b""
         while True:
-            chunk = stream.read(8192)
+            # read1 returns the moment ANY data is available; a blocking
+            # read(8192) would batch 85ms of 48kHz audio per call and cap
+            # the visible update rate below the 30fps render timer
+            chunk = stream.read1(65536)
             if not chunk:
                 break
             if proc is not self._wave_proc:
