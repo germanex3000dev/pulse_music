@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from collections import deque
 from pathlib import Path
 
@@ -271,7 +272,7 @@ class Visualizer(Static):
         self._timer: Timer | None = None
         self._cava_missing = False
         self._warned_about_cava = False
-        # oscilloscope: raw s16 mono samples piped in by pw-record
+        # oscilloscope: raw s16 mono samples piped in by parec
         self._wave_proc: subprocess.Popen | None = None
         self._wave_thread: threading.Thread | None = None
         # the ring holds exactly one render window (0.1s) so every frame can
@@ -281,6 +282,11 @@ class Visualizer(Static):
         )
         self._wave_missing = False
         self._warned_about_wave = False
+        # monotonic stamp of the last PCM chunk: a silent/suspended sink
+        # stops the flow, and the scope must flatline instead of freezing
+        self._last_data = 0.0
+        # smoothed auto-gain for the scope trace (earthquake mode)
+        self._scope_gain = 1.0
 
     def on_mount(self) -> None:
         self._timer = self.set_interval(1 / 30, self._tick)
@@ -428,12 +434,16 @@ class Visualizer(Static):
         return f"{sink}.monitor"
 
     def _start_wave(self) -> None:
-        if shutil.which("pw-record") is None:
+        # parec, not pw-record: on this WirePlumber setup pw-record ignores
+        # --target in every form (name, .monitor, serial) and silently links
+        # the default *source* - the microphone. parec attaches to the exact
+        # --device and never falls back (bad device = no data, not mic data).
+        if shutil.which("parec") is None:
             self._wave_missing = True
             if not self._warned_about_wave:
                 self._warned_about_wave = True
                 self.notify(
-                    "pw-record not found: oscilloscope disabled",
+                    "parec not found: oscilloscope disabled",
                     title="pulse",
                     severity="warning",
                 )
@@ -452,13 +462,11 @@ class Visualizer(Static):
         try:
             proc = subprocess.Popen(
                 [
-                    "pw-record",
-                    "--target", monitor,
-                    "--raw",
-                    "--rate", str(self.WAVE_RATE),
-                    "--channels", "1",
-                    "--format", "s16",
-                    "-",
+                    "parec",
+                    f"--device={monitor}",
+                    "--format=s16le",
+                    f"--rate={self.WAVE_RATE}",
+                    "--channels=1",
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
@@ -468,6 +476,7 @@ class Visualizer(Static):
             return
         self._wave_missing = False
         self._wave_proc = proc
+        self._last_data = time.monotonic()
         self._wave_thread = threading.Thread(
             target=self._wave_read_loop, args=(proc,), daemon=True
         )
@@ -497,6 +506,7 @@ class Visualizer(Static):
                 # a newer capture took over, this data is stale
                 return
             raw += chunk
+            self._last_data = time.monotonic()
             # keep only whole s16 samples, carry the odd byte over
             usable = len(raw) - (len(raw) % 2)
             if usable:
@@ -545,7 +555,7 @@ class Visualizer(Static):
             return Text()  # hidden pane, never draws graphics
         if self.mode == "oscilloscope":
             if self._wave_missing:
-                return self._notice("pw-record not found - oscilloscope disabled")
+                return self._notice("parec not found - oscilloscope disabled")
             return self._render_oscilloscope()
         # bars and circular both need the spectrum
         if self._cava_missing:
@@ -620,35 +630,43 @@ class Visualizer(Static):
         n_grad = len(gradient)
 
         window = max(width, int(self.WAVE_RATE * self.WAVE_WINDOW))
-        # the ring holds exactly one window; pad with silence until it fills
-        samples = list(self._samples)
+        # a suspended sink stops the PCM flow: flatline instead of freezing
+        # the last waveform on screen forever
+        fresh = (time.monotonic() - self._last_data) < 0.25
+        samples = list(self._samples) if fresh else []
         if len(samples) < window:
             samples = [0] * (window - len(samples)) + samples
 
-        # gentle gain so quiet music still moves (mirrors the bars boost)
+        # Windows-visualizer style: auto-gain so the trace always swings
+        # hard (earthquake), smoothed so it doesn't flicker frame to frame
         peak = max((abs(s) for s in samples), default=0)
-        gain = 1.0
-        if 0 < peak < 0.3 * 32768:
-            gain = 0.3 * 32768 / peak
+        if peak > 0:
+            target = (0.8 * 32768) / peak
+            self._scope_gain += (target - self._scope_gain) * 0.15
+        self._scope_gain = min(max(self._scope_gain, 1.0), 64.0)
+        gain = self._scope_gain
 
         center = (height - 1) / 2
         half = max(1.0, center)
 
-        # min..max envelope of every column's sample slice
+        # one trace point per column, connected to the previous column:
+        # a single thin beam, not a filled min/max envelope
         rows = [[" "] * width for _ in range(height)]
+        prev_row: int | None = None
         for x in range(width):
             start = x * window // width
-            end = (x + 1) * window // width
-            chunk = samples[start:end]
-            if not chunk:
-                continue
-            lo = min(chunk) * gain
-            hi = max(chunk) * gain
-            # positive samples go up; clamp into the pane
-            top = max(0, int(math.floor(center - (hi / 32768.0) * half)))
-            bottom = min(height - 1, int(math.ceil(center - (lo / 32768.0) * half)))
-            for r in range(top, bottom + 1):
-                rows[r][x] = "█"
+            end = max(start + 1, (x + 1) * window // width)
+            value = samples[(start + end) // 2]
+            row = int(round(center - (value * gain / 32768.0) * half))
+            row = max(0, min(height - 1, row))
+            if prev_row is None:
+                rows[row][x] = "█"
+            else:
+                # vertical fill keeps the beam connected across big jumps
+                lo, hi = min(prev_row, row), max(prev_row, row)
+                for r in range(lo, hi + 1):
+                    rows[r][x] = "█"
+            prev_row = row
 
         # row-based color: one span per row, same budget as bars
         text = Text()
@@ -670,14 +688,16 @@ class Visualizer(Static):
         cy = (height - 1) / 2
         # terminal cells are ~2x taller than wide: halve the y radius
         max_r = min(cx, cy * 2)
-        if max_r < 2:
+        if max_r < 3:
             return Text()
-        r_base = max_r * 0.5
-        r_gain = max_r * 0.45
+
+        # cava-style: bars sit ON a base ring and radiate outward, their
+        # length proportional to amplitude (inner ring stays visible)
+        r_ring = max_r * 0.35
+        r_span = max_r - r_ring
 
         bars = self._smooth
         nbars = self._nbars
-        n_points = max(180, int(4 * math.pi * max_r))
 
         # None = empty, else (char, gradient index) - amplitude colors, so
         # runs of equal style get grouped into single spans per row
@@ -689,31 +709,20 @@ class Visualizer(Static):
             ix = int(round(x))
             iy = int(round(y))
             if 0 <= ix < width and 0 <= iy < height:
-                grid[iy][ix] = ("•", style)
+                grid[iy][ix] = ("█", style)
 
-        prev: tuple[float, float] | None = None
-        for i in range(n_points + 1):  # +1 closes the ring
-            t = (i % n_points) / n_points
-            theta = t * 2 * math.pi - math.pi / 2  # start at the top
-            # interpolate the spectrum around the ring (wraps at the seam)
-            pos = t * nbars
-            i0 = int(pos) % nbars
-            frac = pos - int(pos)
-            amp = bars[i0] * (1 - frac) + bars[(i0 + 1) % nbars] * frac
-            r = r_base + amp * r_gain
-            x = cx + r * math.cos(theta)
-            y = cy + r * math.sin(theta) * 0.5
+        for i, amp in enumerate(bars):
+            theta = (i / nbars) * 2 * math.pi - math.pi / 2  # start at top
+            cos_t = math.cos(theta)
+            sin_t = math.sin(theta)
             style = min(n_grad - 1, max(0, int(amp * n_grad)))
-            if prev is None:
-                plot(x, y, style)
-            else:
-                # connect the points so the ring has no gaps
-                x0, y0 = prev
-                steps = max(1, int(max(abs(x - x0), abs(y - y0)) * 2))
-                for s in range(1, steps + 1):
-                    f = s / steps
-                    plot(x0 + (x - x0) * f, y0 + (y - y0) * f, style)
-            prev = (x, y)
+            # walk outward from the ring to this bar's tip, stepping small
+            # enough (0.25 cells) that diagonal rays leave no gaps
+            r_end = r_ring + max(amp, 0.02) * r_span
+            steps = max(2, int((r_end - r_ring) * 4))
+            for s in range(steps + 1):
+                r = r_ring + (r_end - r_ring) * s / steps
+                plot(cx + r * cos_t, cy + r * sin_t * 0.5, style)
 
         # group equal-style runs so amplitude colors don't explode the span count
         text = Text()

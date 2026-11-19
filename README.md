@@ -27,7 +27,7 @@ fast, focused, and look ridiculously good in a terminal.
 -   Track and album views
 -   Four visualizer modes cycled with `V` --- spectrum bars, a true
     **oscilloscope** waveform, a circular ring, or plain text --- degrading
-    gracefully when `cava` or `pw-record` is not installed
+    gracefully when `cava` or `parec` is not installed
 -   Native **Nix** support: `nix run`, a NixOS/Home Manager module, and a dev
     shell
 -   Starts paused, so PULSE never interrupts you on launch
@@ -54,7 +54,7 @@ PULSE is currently aimed at Linux systems with:
 -   Python 3.10+
 -   `mpv` (including `libmpv`)
 -   `cava` (optional, only for the visualizer)
--   `pw-record` + `pactl` (optional, only for the oscilloscope mode)
+-   `parec` + `pactl` (optional, only for the oscilloscope mode)
 -   PulseAudio / PipeWire audio output
 -   Python packages:
     -   `textual`
@@ -271,10 +271,10 @@ same layout.
 `V` steps through four visualizer modes:
 
 -   **bars** --- the classic spectrum (default)
--   **oscilloscope** --- a true waveform tapped from the default sink's
-    monitor via `pw-record` (needs PipeWire's `pw-record` + `pactl`;
-    shows a notice if they're missing)
--   **circular** --- the spectrum arranged around a ring
+-   **oscilloscope** --- a true waveform as a thin, hard-swinging beam
+    tapped from the default sink's monitor via `parec` (needs `parec` +
+    `pactl`; shows a notice if they're missing)
+-   **circular** --- cava-style radial bars growing out of a ring
 -   **text** --- no graphics, the track title owns the pane
 
 The mode starts wherever `config.toml` says (see Configuration); cycling
@@ -487,10 +487,14 @@ mode = "bars"   # bars | oscilloscope | circular | text
 rest of the session. An invalid mode prints a warning to stderr and falls
 back to `bars`.
 
-The **oscilloscope** needs PipeWire's `pw-record` (plus `pactl` to find the
+The **oscilloscope** needs `parec` (plus `pactl` to find the
 default sink's monitor). If either is missing, PULSE shows a notice in the
 pane instead — the other modes are unaffected. The waveform is captured
-from the output monitor only, never from a microphone.
+from the output monitor only, never from a microphone (`parec` is used
+specifically because it attaches to the exact device and fails safe,
+while `pw-record` silently falls back to the default source on some
+setups). When the sink goes idle the trace flatlines instead of freezing
+on the last waveform.
 
 ------------------------------------------------------------------------
 
