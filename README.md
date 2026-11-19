@@ -14,7 +14,9 @@ fast, focused, and look ridiculously good in a terminal.
 
 ![PULSE library and visualizer](assets/pulse-library.png)
 
-![PULSE alternate library view](assets/pulse-visualizer.png)
+![PULSE alternate visualizer 2](assets/pulse-visualizer-type-2.png)
+
+![PULSE alternate visualizer 3](assets/pulse-visualizer-type-3.png)
 
 ------------------------------------------------------------------------
 

@@ -18,14 +18,12 @@ from pathlib import Path
 locale.setlocale(locale.LC_NUMERIC, "C")
 
 
-# ---------------------------------------------------------------------------
 # platform bootstrap
 #
 # Nix keeps every library in its own store path and ships an almost empty
 # loader cache, so a few things that work out of the box on a normal distro
 # have to be wired up by hand. Everything here is best effort: on a regular
 # system these functions find what they need immediately and do nothing.
-# ---------------------------------------------------------------------------
 
 #: mpv audio outputs PULSE understands, most preferred first.
 AUDIO_OUTPUT_PREFERENCE = ("pipewire", "pulse", "alsa")
@@ -93,7 +91,7 @@ def _libmpv_candidates() -> list[Path]:
 def _prepare_libmpv() -> None:
     """Make ``import mpv`` work where the loader cache knows nothing about libmpv.
 
-    python-mpv loads libmpv through ``ctypes.util.find_library``, which only
+    python-mpv loads libmpv through "ctypes.util.find_library", which only
     consults ldconfig and ``ld``. On NixOS both come up empty even with mpv
     installed, so we locate the library ourselves, load it once to fail early
     if it is unusable, and hand python-mpv the absolute path.
@@ -408,7 +406,7 @@ class Visualizer(Static):
                 pass
             self._cava_config = None
 
-    # ----- oscilloscope: raw PCM from the default sink's monitor -----
+    # oscilloscope: raw PCM from the default sink's monitor 
 
     def _resolve_monitor(self) -> str | None:
         """Name of the default sink's monitor, or None if it can't be found.
@@ -892,7 +890,7 @@ class PulsePlayer(App):
             id="progress-row",
         )
 
-    # ----- build library tree -----
+    #  build library tree 
 
     def _build_tree(self) -> None:
         tree = self.query_one("#lib-tree", Tree)
@@ -959,7 +957,7 @@ class PulsePlayer(App):
 
         self.set_focus(None)
 
-    # ----- mpv callbacks (mpv event thread -> must hop to main thread) -----
+    # mpv callbacks (mpv event thread -> must hop to main thread) 
 
     def _marshal(self, fn, *args):
         if not self.is_running or self.player is None:
@@ -984,7 +982,7 @@ class PulsePlayer(App):
     def _on_eof(self, _name, value):
         self._marshal(self._on_eof_reached, value)
 
-    # ----- UI updates (main thread only) -----
+    #  UI updates (main thread only)
 
     def _update_time_pos(self, value):
         self._pos = value
@@ -1039,7 +1037,7 @@ class PulsePlayer(App):
         header = self.query_one(Header)
         header.sub_title = f"{state}  {title}"
 
-    # ----- helpers -----
+    # helpers 
 
     def _is_paused(self) -> bool:
         return bool(self.player.pause) if self.player else True
@@ -1079,7 +1077,7 @@ class PulsePlayer(App):
             self.player.pause = True
         self._update_status()
 
-    # ----- actions -----
+    # actions 
 
     def action_toggle(self) -> None:
         if self.player is not None:
@@ -1253,7 +1251,7 @@ class PulsePlayer(App):
         # text-only hands the pane back to the track title
         now.set_class(next_mode == "text", "no-viz")
 
-    # ----- event handlers -----
+    # event handlers 
 
     @on(Tree.NodeSelected)
     def _on_node_selected(self, event: Tree.NodeSelected) -> None:
