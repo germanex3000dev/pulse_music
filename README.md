@@ -1,6 +1,6 @@
-# PULSE
+# PULSEPLAYER
 
-### A terminal-native music player with a heartbeat.
+### A customizable terminal-native local music player with a heartbeat.
 
 **PULSE** is a lightweight, keyboard-driven TUI music player built with
 **Python**, **Textual**, **mpv**, and **CAVA**.
