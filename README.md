@@ -8,6 +8,13 @@
 It is designed around a simple idea: local music playback should feel
 fast, focused, and look ridiculously good in a terminal.
 
+### special thanks
+I want to give my very special thanks to gretagen ZET, midas of technology and creator of HaliadeSYS himself for contributing to this small project. 
+
+Go look at his prohjects, too! ([gretagen](https://github.com/gretagen))
+
+Big thanks to gretagen again
+
 ### LATEST UPDATE:
 
 - Change visualizers with `V`
